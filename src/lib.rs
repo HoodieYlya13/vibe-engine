@@ -1,6 +1,7 @@
 use wasm_bindgen::prelude::*;
 use rapier3d::prelude::*;
 
+const DEFAULT_PED_COUNT: u32 = 1500;
 const BTN_FORWARD: u32 = 1 << 0;
 const BTN_BACK: u32 = 1 << 1;
 const BTN_LEFT: u32 = 1 << 2;
@@ -32,15 +33,22 @@ pub struct SimEngine {
     player_vel_y: f32,
     in_car: bool,
     can_enter_car: bool,
+    paused: bool,
+    allow_pause: bool,
     sim_time: f32,
     ped_positions: Vec<Vector>,
+}
+
+#[wasm_bindgen]
+pub fn default_ped_count() -> u32 {
+    DEFAULT_PED_COUNT
 }
 
 #[wasm_bindgen]
 impl SimEngine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> SimEngine {
-        SimEngine::new_with_peds(0)
+        SimEngine::new_with_peds(DEFAULT_PED_COUNT)
     }
 
     pub fn new_with_peds(count: u32) -> SimEngine {
@@ -107,12 +115,17 @@ impl SimEngine {
             player_vel_y: 0.0,
             in_car: false,
             can_enter_car: false,
+            paused: false,
+            allow_pause: true,
             sim_time: 0.0,
             ped_positions,
         }
     }
 
     pub fn step(&mut self) {
+        if self.paused {
+            return;
+        }
         let dt = self.integration_parameters.dt;
         self.sim_time += dt;
 
@@ -232,6 +245,18 @@ impl SimEngine {
         }
     }
 
+    pub fn state_len(&self) -> usize {
+        13 + self.ped_positions.len() * 3
+    }
+
+    pub fn ped_count(&self) -> u32 {
+        self.ped_positions.len() as u32
+    }
+
+    pub fn dt(&self) -> f32 {
+        self.integration_parameters.dt
+    }
+
     pub fn reset_car(&mut self) {
         if let Some(body) = self.rigid_body_set.get_mut(self.car_handle) {
             body.set_translation(Vector::new(0.0, 1.0, 0.0), true);
@@ -244,6 +269,23 @@ impl SimEngine {
         self.player_vel_y = 0.0;
         self.in_car = false;
         self.can_enter_car = false;
+    }
+
+    pub fn toggle_pause(&mut self) {
+        if self.allow_pause {
+            self.paused = !self.paused;
+        }
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused
+    }
+
+    pub fn set_allow_pause(&mut self, allow: bool) {
+        self.allow_pause = allow;
+        if !allow {
+            self.paused = false;
+        }
     }
 
     pub fn set_input_buttons(&mut self, buttons: u32, camera_yaw: f32) {
