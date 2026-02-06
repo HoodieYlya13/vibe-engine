@@ -14,59 +14,39 @@ pub struct SimEngine {
     ccd_solver: CCDSolver,
     gravity: Vector,
     integration_parameters: IntegrationParameters,
-    ball_handles: Vec<RigidBodyHandle>,
-    ball_start_positions: Vec<Vector>,
+    car_handle: RigidBodyHandle,
+    input_throttle: f32,
+    input_steer: f32,
+    input_handbrake: f32,
 }
 
 #[wasm_bindgen]
 impl SimEngine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> SimEngine {
-        SimEngine::new_with_balls(1)
-    }
-
-    pub fn new_with_balls(count: u32) -> SimEngine {
         console_error_panic_hook::set_once();
 
         let mut rigid_body_set = RigidBodySet::new();
         let mut collider_set = ColliderSet::new();
 
         let ground_body = RigidBodyBuilder::fixed()
-            .translation(Vector::new(0.0, -6.0, 0.0))
+            .translation(Vector::new(0.0, -0.5, 0.0))
             .build();
         let ground_collider = ColliderBuilder::cuboid(50.0, 0.5, 50.0).build();
         let ground_handle = rigid_body_set.insert(ground_body);
         collider_set.insert_with_parent(ground_collider, ground_handle, &mut rigid_body_set);
 
-        let mut ball_handles = Vec::new();
-        let mut ball_start_positions = Vec::new();
-        let ball_count = count.max(1) as usize;
-        let cols = (ball_count as f32).sqrt().ceil() as usize;
-        let spacing = 1.2;
-        let half = cols as f32 * 0.5;
-
-        for i in 0..ball_count {
-            let x = (i % cols) as f32;
-            let z = (i / cols) as f32;
-            let position = Vector::new(
-                (x - half) * spacing,
-                5.0 + (z * 0.1),
-                (z - half) * spacing,
-            );
-
-            let rigid_body = RigidBodyBuilder::dynamic()
-                .translation(position)
-                .build();
-
-            let collider = ColliderBuilder::ball(0.5)
-                .restitution(0.7)
-                .build();
-
-            let handle = rigid_body_set.insert(rigid_body);
-            collider_set.insert_with_parent(collider, handle, &mut rigid_body_set);
-            ball_handles.push(handle);
-            ball_start_positions.push(position);
-        }
+        let car_body = RigidBodyBuilder::dynamic()
+            .translation(Vector::new(0.0, 1.0, 0.0))
+            .linear_damping(0.2)
+            .angular_damping(0.9)
+            .build();
+        let car_collider = ColliderBuilder::cuboid(0.9, 0.4, 1.6)
+            .restitution(0.1)
+            .friction(1.2)
+            .build();
+        let car_handle = rigid_body_set.insert(car_body);
+        collider_set.insert_with_parent(car_collider, car_handle, &mut rigid_body_set);
 
         SimEngine {
             pipeline: PhysicsPipeline::new(),
@@ -80,12 +60,40 @@ impl SimEngine {
             ccd_solver: CCDSolver::new(),
             gravity: Vector::new(0.0, -9.81, 0.0),
             integration_parameters: IntegrationParameters::default(),
-            ball_handles,
-            ball_start_positions,
+            car_handle,
+            input_throttle: 0.0,
+            input_steer: 0.0,
+            input_handbrake: 0.0,
         }
     }
 
     pub fn step(&mut self) {
+        {
+            let max_speed = 18.0;
+            let turn_rate = 1.8;
+            let drift_turn = 3.2;
+
+            if let Some(body) = self.rigid_body_set.get_mut(self.car_handle) {
+                let rotation = body.rotation();
+                let forward = rotation * Vector::new(0.0, 0.0, 1.0);
+                let target_speed = self.input_throttle * max_speed;
+                let current_vel = body.linvel();
+                let desired = Vector::new(
+                    forward.x * target_speed,
+                    current_vel.y,
+                    forward.z * target_speed,
+                );
+                body.set_linvel(desired, true);
+
+                let turn_strength = if self.input_handbrake > 0.5 {
+                    drift_turn
+                } else {
+                    turn_rate
+                };
+                body.set_angvel(Vector::new(0.0, self.input_steer * turn_strength, 0.0), true);
+            }
+        }
+
         self.pipeline.step(
             self.gravity,
             &self.integration_parameters,
@@ -102,31 +110,36 @@ impl SimEngine {
         );
     }
 
-    pub fn write_positions(&self, out: &mut [f32]) {
-        let needed = self.ball_handles.len() * 3;
-        if out.len() < needed {
+    pub fn write_car_state(&self, out: &mut [f32]) {
+        if out.len() < 7 {
             return;
         }
 
-        for (i, handle) in self.ball_handles.iter().enumerate() {
-            let body = &self.rigid_body_set[*handle];
-            let translation = body.translation();
-            let base = i * 3;
-            out[base] = translation.x;
-            out[base + 1] = translation.y;
-            out[base + 2] = translation.z;
+        let body = &self.rigid_body_set[self.car_handle];
+        let translation = body.translation();
+        let rotation = body.rotation();
+
+        out[0] = translation.x;
+        out[1] = translation.y;
+        out[2] = translation.z;
+        out[3] = rotation.x;
+        out[4] = rotation.y;
+        out[5] = rotation.z;
+        out[6] = rotation.w;
+    }
+
+    pub fn reset_car(&mut self) {
+        if let Some(body) = self.rigid_body_set.get_mut(self.car_handle) {
+            body.set_translation(Vector::new(0.0, 1.0, 0.0), true);
+            body.set_linvel(Vector::new(0.0, 0.0, 0.0), true);
+            body.set_angvel(Vector::new(0.0, 0.0, 0.0), true);
+            body.wake_up(true);
         }
     }
 
-    pub fn reset_balls(&mut self) {
-        for (i, handle) in self.ball_handles.iter().enumerate() {
-            let position = self.ball_start_positions[i];
-            if let Some(body) = self.rigid_body_set.get_mut(*handle) {
-                body.set_translation(position, true);
-                body.set_linvel(Vector::new(0.0, 0.0, 0.0), true);
-                body.set_angvel(Vector::new(0.0, 0.0, 0.0), true);
-                body.wake_up(true);
-            }
-        }
+    pub fn set_input(&mut self, throttle: f32, steer: f32, handbrake: f32) {
+        self.input_throttle = throttle.clamp(-1.0, 1.0);
+        self.input_steer = steer.clamp(-1.0, 1.0);
+        self.input_handbrake = handbrake.clamp(0.0, 1.0);
     }
 }
