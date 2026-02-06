@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
 use rapier3d::prelude::*;
+use rapier3d::control::{DynamicRayCastVehicleController, WheelTuning};
 
 const DEFAULT_PED_COUNT: u32 = 1500;
 const BTN_FORWARD: u32 = 1 << 0;
@@ -15,10 +16,14 @@ const ACTION_PAUSE: u32 = 1 << 3;
 const HUD_HINT_NONE: u32 = 0;
 const HUD_HINT_ENTER: u32 = 1;
 const HUD_HINT_EXIT: u32 = 2;
+const VEHICLE_MAX_ENGINE_FORCE: f32 = 2200.0;
+const VEHICLE_MAX_BRAKE_FORCE: f32 = 45.0;
+const VEHICLE_MAX_STEER: f32 = 0.6;
 const CAR_STATE_FLOATS: u32 = 7;
 const PLAYER_STATE_FLOATS: u32 = 5;
 const HUD_STATE_FLOATS: u32 = 1;
 const CAM_STATE_FLOATS: u32 = 4;
+const PED_STATE_STRIDE: u32 = 16;
 const PLAYER_STATE_OFFSET: u32 = CAR_STATE_FLOATS;
 const HUD_STATE_OFFSET: u32 = PLAYER_STATE_OFFSET + PLAYER_STATE_FLOATS;
 const CAM_STATE_OFFSET: u32 = HUD_STATE_OFFSET + HUD_STATE_FLOATS;
@@ -42,6 +47,7 @@ pub struct SimEngine {
     gravity: Vector,
     integration_parameters: IntegrationParameters,
     car_handle: RigidBodyHandle,
+    vehicle: DynamicRayCastVehicleController,
     input_handbrake: f32,
     input_forward: f32,
     input_right: f32,
@@ -168,6 +174,11 @@ pub fn ped_state_offset() -> u32 {
 }
 
 #[wasm_bindgen]
+pub fn ped_state_stride() -> u32 {
+    PED_STATE_STRIDE
+}
+
+#[wasm_bindgen]
 pub fn state_header_ints() -> u32 {
     STATE_HEADER_INTS
 }
@@ -209,8 +220,9 @@ impl SimEngine {
 
         let car_body = RigidBodyBuilder::dynamic()
             .translation(Vector::new(0.0, 1.0, 0.0))
-            .linear_damping(0.2)
-            .angular_damping(0.9)
+            .additional_mass(1200.0)
+            .linear_damping(0.4)
+            .angular_damping(1.2)
             .build();
         let car_collider = ColliderBuilder::cuboid(0.9, 0.4, 1.6)
             .restitution(0.1)
@@ -218,6 +230,58 @@ impl SimEngine {
             .build();
         let car_handle = rigid_body_set.insert(car_body);
         collider_set.insert_with_parent(car_collider, car_handle, &mut rigid_body_set);
+
+        let mut vehicle = DynamicRayCastVehicleController::new(car_handle);
+        vehicle.index_up_axis = 1;
+        vehicle.index_forward_axis = 2;
+        let wheel_radius = 0.38;
+        let suspension_rest = 0.45;
+        let tuning = WheelTuning {
+            suspension_stiffness: 12.0,
+            suspension_compression: 3.0,
+            suspension_damping: 2.0,
+            max_suspension_travel: 0.35,
+            side_friction_stiffness: 1.2,
+            friction_slip: 8.0,
+            max_suspension_force: 12000.0,
+        };
+        let half_width = 0.9;
+        let half_length = 1.3;
+        let connection_height = -0.25;
+        let direction = Vector::new(0.0, -1.0, 0.0);
+        let axle = Vector::new(1.0, 0.0, 0.0);
+        vehicle.add_wheel(
+            Vector::new(-half_width, connection_height, half_length),
+            direction,
+            axle,
+            suspension_rest,
+            wheel_radius,
+            &tuning,
+        );
+        vehicle.add_wheel(
+            Vector::new(half_width, connection_height, half_length),
+            direction,
+            axle,
+            suspension_rest,
+            wheel_radius,
+            &tuning,
+        );
+        vehicle.add_wheel(
+            Vector::new(-half_width, connection_height, -half_length),
+            direction,
+            axle,
+            suspension_rest,
+            wheel_radius,
+            &tuning,
+        );
+        vehicle.add_wheel(
+            Vector::new(half_width, connection_height, -half_length),
+            direction,
+            axle,
+            suspension_rest,
+            wheel_radius,
+            &tuning,
+        );
 
         let ped_count = count as usize;
         let mut ped_positions = Vec::with_capacity(ped_count);
@@ -248,6 +312,7 @@ impl SimEngine {
             gravity: Vector::new(0.0, -9.81, 0.0),
             integration_parameters: IntegrationParameters::default(),
             car_handle,
+            vehicle,
             input_handbrake: 0.0,
             input_forward: 0.0,
             input_right: 0.0,
@@ -272,33 +337,31 @@ impl SimEngine {
         self.sim_time += dt;
 
         {
-            let max_speed = 18.0;
-            let turn_rate = 1.8;
-            let drift_turn = 3.2;
-
             let throttle = if self.in_car { self.input_forward } else { 0.0 };
-            let steer = if self.in_car { self.input_right } else { 0.0 };
+            let steer = if self.in_car { -self.input_right } else { 0.0 };
             let handbrake = if self.in_car { self.input_handbrake } else { 0.0 };
 
-            if let Some(body) = self.rigid_body_set.get_mut(self.car_handle) {
-                let rotation = body.rotation();
-                let forward = rotation * Vector::new(0.0, 0.0, 1.0);
-                let target_speed = throttle * max_speed;
-                let current_vel = body.linvel();
-                let desired = Vector::new(
-                    forward.x * target_speed,
-                    current_vel.y,
-                    forward.z * target_speed,
-                );
-                body.set_linvel(desired, true);
+            let engine_force = throttle * VEHICLE_MAX_ENGINE_FORCE;
+            let brake_force = if handbrake > 0.5 {
+                VEHICLE_MAX_BRAKE_FORCE
+            } else {
+                0.0
+            };
+            let steer_angle = steer * VEHICLE_MAX_STEER;
 
-                let turn_strength = if handbrake > 0.5 {
-                    drift_turn
-                } else {
-                    turn_rate
-                };
-                body.set_angvel(Vector::new(0.0, steer * turn_strength, 0.0), true);
+            for (index, wheel) in self.vehicle.wheels_mut().iter_mut().enumerate() {
+                wheel.engine_force = engine_force;
+                wheel.brake = brake_force;
+                wheel.steering = if index < 2 { steer_angle } else { 0.0 };
             }
+
+            let queries = self.broad_phase.as_query_pipeline_mut(
+                self.narrow_phase.query_dispatcher(),
+                &mut self.rigid_body_set,
+                &mut self.collider_set,
+                QueryFilter::default().exclude_rigid_body(self.car_handle),
+            );
+            self.vehicle.update_vehicle(dt, queries);
         }
 
         if !self.in_car {
@@ -348,7 +411,8 @@ impl SimEngine {
     }
 
     pub fn write_state(&self, out: &mut [f32]) {
-        let needed = PED_STATE_OFFSET as usize + self.ped_positions.len() * 3;
+        let needed =
+            PED_STATE_OFFSET as usize + self.ped_positions.len() * PED_STATE_STRIDE as usize;
         if out.len() < needed {
             return;
         }
@@ -398,15 +462,28 @@ impl SimEngine {
 
         let mut cursor = PED_STATE_OFFSET as usize;
         for pos in &self.ped_positions {
-            out[cursor] = pos.x;
-            out[cursor + 1] = pos.y;
-            out[cursor + 2] = pos.z;
-            cursor += 3;
+            out[cursor] = 1.0;
+            out[cursor + 1] = 0.0;
+            out[cursor + 2] = 0.0;
+            out[cursor + 3] = 0.0;
+            out[cursor + 4] = 0.0;
+            out[cursor + 5] = 1.0;
+            out[cursor + 6] = 0.0;
+            out[cursor + 7] = 0.0;
+            out[cursor + 8] = 0.0;
+            out[cursor + 9] = 0.0;
+            out[cursor + 10] = 1.0;
+            out[cursor + 11] = 0.0;
+            out[cursor + 12] = pos.x;
+            out[cursor + 13] = pos.y;
+            out[cursor + 14] = pos.z;
+            out[cursor + 15] = 1.0;
+            cursor += PED_STATE_STRIDE as usize;
         }
     }
 
     pub fn state_len(&self) -> usize {
-        PED_STATE_OFFSET as usize + self.ped_positions.len() * 3
+        PED_STATE_OFFSET as usize + self.ped_positions.len() * PED_STATE_STRIDE as usize
     }
 
     pub fn ped_count(&self) -> u32 {
@@ -428,6 +505,12 @@ impl SimEngine {
         self.player_yaw = 0.0;
         self.player_vel_y = 0.0;
         self.in_car = false;
+        for wheel in self.vehicle.wheels_mut() {
+            wheel.engine_force = 0.0;
+            wheel.brake = 0.0;
+            wheel.steering = 0.0;
+            wheel.rotation = 0.0;
+        }
     }
 
     pub fn toggle_pause(&mut self) {
