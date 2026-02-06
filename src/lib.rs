@@ -236,8 +236,10 @@ impl SimEngine {
         let car_pos = self.rigid_body_set[self.car_handle].translation();
         let dx = self.player_pos.x - car_pos.x;
         let dz = self.player_pos.z - car_pos.z;
-        if dx * dx + dz * dz < 4.0 {
+        let enter_radius = 4.0;
+        if dx * dx + dz * dz <= enter_radius * enter_radius {
             self.in_car = true;
+            self.player_pos = Vector::new(car_pos.x, car_pos.y, car_pos.z);
         }
     }
 
@@ -247,12 +249,15 @@ impl SimEngine {
         }
 
         let world_half = 60.0;
-        let car_pos = self.rigid_body_set[self.car_handle].translation();
+        let car_body = &self.rigid_body_set[self.car_handle];
+        let car_pos = car_body.translation();
         let player_pos = self.player_pos;
         let mut player_push = Vector::new(0.0, 0.0, 0.0);
         let ped_radius = 0.4;
         let player_radius = 0.5;
         let car_radius = 2.0;
+        let car_speed = car_body.linvel().length();
+        let car_push_scale = 1.2 + (car_speed * 0.1).min(2.0);
 
         for (i, pos) in self.ped_positions.iter_mut().enumerate() {
             let angle = self.sim_time * 0.35 + i as f32 * 0.37;
@@ -285,7 +290,7 @@ impl SimEngine {
             if cdist_sq < car_min * car_min {
                 let dist = cdist_sq.sqrt().max(0.001);
                 let n = Vector::new(dx / dist, 0.0, dz / dist);
-                let push = (car_min - dist) * 1.2;
+                let push = (car_min - dist) * car_push_scale;
                 *pos += n * push;
             }
 
@@ -306,6 +311,17 @@ impl SimEngine {
         }
 
         if !self.in_car {
+            let dx = player_pos.x - car_pos.x;
+            let dz = player_pos.z - car_pos.z;
+            let dist_sq = dx * dx + dz * dz;
+            let min_dist = player_radius + car_radius;
+            if dist_sq < min_dist * min_dist {
+                let dist = dist_sq.sqrt().max(0.001);
+                let n = Vector::new(dx / dist, 0.0, dz / dist);
+                let push = min_dist - dist;
+                player_push += n * push;
+            }
+
             self.player_pos += player_push;
             self.player_pos.y = 1.0;
         }
