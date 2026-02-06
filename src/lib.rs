@@ -12,10 +12,17 @@ const ACTION_JUMP: u32 = 1 << 0;
 const ACTION_ENTER: u32 = 1 << 1;
 const ACTION_RESET: u32 = 1 << 2;
 const ACTION_PAUSE: u32 = 1 << 3;
+const HUD_HINT_NONE: u32 = 0;
+const HUD_HINT_ENTER: u32 = 1;
+const HUD_HINT_EXIT: u32 = 2;
 const CAR_STATE_FLOATS: u32 = 7;
-const PLAYER_STATE_FLOATS: u32 = 6;
+const PLAYER_STATE_FLOATS: u32 = 5;
+const HUD_STATE_FLOATS: u32 = 1;
+const CAM_STATE_FLOATS: u32 = 4;
 const PLAYER_STATE_OFFSET: u32 = CAR_STATE_FLOATS;
-const PED_STATE_OFFSET: u32 = CAR_STATE_FLOATS + PLAYER_STATE_FLOATS;
+const HUD_STATE_OFFSET: u32 = PLAYER_STATE_OFFSET + PLAYER_STATE_FLOATS;
+const CAM_STATE_OFFSET: u32 = HUD_STATE_OFFSET + HUD_STATE_FLOATS;
+const PED_STATE_OFFSET: u32 = CAM_STATE_OFFSET + CAM_STATE_FLOATS;
 const STATE_HEADER_INTS: u32 = 3;
 const INPUT_HEADER_INTS: u32 = 2;
 const INPUT_CAPACITY: u32 = 128;
@@ -44,7 +51,6 @@ pub struct SimEngine {
     player_yaw: f32,
     player_vel_y: f32,
     in_car: bool,
-    can_enter_car: bool,
     paused: bool,
     allow_pause: bool,
     sim_time: f32,
@@ -107,6 +113,21 @@ pub fn action_pause() -> u32 {
 }
 
 #[wasm_bindgen]
+pub fn hud_hint_none() -> u32 {
+    HUD_HINT_NONE
+}
+
+#[wasm_bindgen]
+pub fn hud_hint_enter() -> u32 {
+    HUD_HINT_ENTER
+}
+
+#[wasm_bindgen]
+pub fn hud_hint_exit() -> u32 {
+    HUD_HINT_EXIT
+}
+
+#[wasm_bindgen]
 pub fn car_state_floats() -> u32 {
     CAR_STATE_FLOATS
 }
@@ -119,6 +140,26 @@ pub fn player_state_floats() -> u32 {
 #[wasm_bindgen]
 pub fn player_state_offset() -> u32 {
     PLAYER_STATE_OFFSET
+}
+
+#[wasm_bindgen]
+pub fn hud_state_floats() -> u32 {
+    HUD_STATE_FLOATS
+}
+
+#[wasm_bindgen]
+pub fn hud_state_offset() -> u32 {
+    HUD_STATE_OFFSET
+}
+
+#[wasm_bindgen]
+pub fn cam_state_floats() -> u32 {
+    CAM_STATE_FLOATS
+}
+
+#[wasm_bindgen]
+pub fn cam_state_offset() -> u32 {
+    CAM_STATE_OFFSET
 }
 
 #[wasm_bindgen]
@@ -216,7 +257,6 @@ impl SimEngine {
             player_yaw: 0.0,
             player_vel_y: 0.0,
             in_car: false,
-            can_enter_car: false,
             paused: false,
             allow_pause: true,
             sim_time: 0.0,
@@ -289,12 +329,6 @@ impl SimEngine {
             self.player_vel_y = 0.0;
         }
 
-        let car_pos = self.rigid_body_set[self.car_handle].translation();
-        let dx = self.player_pos.x - car_pos.x;
-        let dz = self.player_pos.z - car_pos.z;
-        let enter_radius = 4.0;
-        self.can_enter_car = !self.in_car && (dx * dx + dz * dz <= enter_radius * enter_radius);
-
         self.update_pedestrians(dt);
 
         self.pipeline.step(
@@ -314,7 +348,7 @@ impl SimEngine {
     }
 
     pub fn write_state(&self, out: &mut [f32]) {
-        let needed = 13 + self.ped_positions.len() * 3;
+        let needed = PED_STATE_OFFSET as usize + self.ped_positions.len() * 3;
         if out.len() < needed {
             return;
         }
@@ -331,14 +365,38 @@ impl SimEngine {
         out[5] = rotation.z;
         out[6] = rotation.w;
 
-        out[7] = self.player_pos.x;
-        out[8] = self.player_pos.y;
-        out[9] = self.player_pos.z;
-        out[10] = self.player_yaw;
-        out[11] = if self.in_car { 1.0 } else { 0.0 };
-        out[12] = if self.can_enter_car { 1.0 } else { 0.0 };
+        let player_offset = PLAYER_STATE_OFFSET as usize;
+        out[player_offset] = self.player_pos.x;
+        out[player_offset + 1] = self.player_pos.y;
+        out[player_offset + 2] = self.player_pos.z;
+        out[player_offset + 3] = self.player_yaw;
+        out[player_offset + 4] = if self.in_car { 1.0 } else { 0.0 };
 
-        let mut cursor = 13;
+        let car_pos = body.translation();
+        let dx = self.player_pos.x - car_pos.x;
+        let dz = self.player_pos.z - car_pos.z;
+        let enter_radius = 4.0;
+        let can_enter = !self.in_car && (dx * dx + dz * dz <= enter_radius * enter_radius);
+        let hud_hint = if self.in_car {
+            HUD_HINT_EXIT
+        } else if can_enter {
+            HUD_HINT_ENTER
+        } else {
+            HUD_HINT_NONE
+        };
+
+        let hud_offset = HUD_STATE_OFFSET as usize;
+        out[hud_offset] = hud_hint as f32;
+
+        let cam_offset = CAM_STATE_OFFSET as usize;
+        let target = if self.in_car { car_pos } else { self.player_pos };
+        let target_y = if self.in_car { 0.6 } else { 0.9 };
+        out[cam_offset] = target.x;
+        out[cam_offset + 1] = target.y + target_y;
+        out[cam_offset + 2] = target.z;
+        out[cam_offset + 3] = if self.in_car { 14.0 } else { 8.0 };
+
+        let mut cursor = PED_STATE_OFFSET as usize;
         for pos in &self.ped_positions {
             out[cursor] = pos.x;
             out[cursor + 1] = pos.y;
@@ -348,7 +406,7 @@ impl SimEngine {
     }
 
     pub fn state_len(&self) -> usize {
-        13 + self.ped_positions.len() * 3
+        PED_STATE_OFFSET as usize + self.ped_positions.len() * 3
     }
 
     pub fn ped_count(&self) -> u32 {
@@ -370,7 +428,6 @@ impl SimEngine {
         self.player_yaw = 0.0;
         self.player_vel_y = 0.0;
         self.in_car = false;
-        self.can_enter_car = false;
     }
 
     pub fn toggle_pause(&mut self) {
