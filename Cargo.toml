@@ -1,0 +1,17 @@
+[package]
+name = "sim"
+version = "0.1.0"
+edition = "2024"
+description = "Rust physics simulation core for Vibe Heist (WASM/WebGPU)."
+repository = "https://github.com/hy13/vibe-heist"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2.108"
+console_error_panic_hook = "0.1.7"
+
+rapier3d = { version = "0.32", features = ["simd-stable", "debug-render"] }
+nalgebra = "0.34"
