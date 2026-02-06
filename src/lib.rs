@@ -20,8 +20,10 @@ pub struct SimEngine {
     input_handbrake: f32,
     input_move_x: f32,
     input_move_z: f32,
+    input_run: f32,
     player_pos: Vector,
     player_yaw: f32,
+    player_vel_y: f32,
     in_car: bool,
     sim_time: f32,
     ped_positions: Vec<Vector>,
@@ -93,8 +95,10 @@ impl SimEngine {
             input_handbrake: 0.0,
             input_move_x: 0.0,
             input_move_z: 0.0,
+            input_run: 0.0,
             player_pos: Vector::new(2.0, 1.0, 0.0),
             player_yaw: 0.0,
+            player_vel_y: 0.0,
             in_car: false,
             sim_time: 0.0,
             ped_positions,
@@ -136,7 +140,7 @@ impl SimEngine {
         }
 
         if !self.in_car {
-            let speed = 4.0;
+            let speed = if self.input_run > 0.5 { 7.0 } else { 4.0 };
             let mut move_dir = Vector::new(self.input_move_x, 0.0, self.input_move_z);
             let len = move_dir.length();
             if len > 1.0 {
@@ -148,10 +152,16 @@ impl SimEngine {
             }
 
             self.player_pos += move_dir * speed * dt;
-            self.player_pos.y = 1.0;
+            self.player_vel_y += -9.81 * dt;
+            self.player_pos.y += self.player_vel_y * dt;
+            if self.player_pos.y <= 1.0 {
+                self.player_pos.y = 1.0;
+                self.player_vel_y = 0.0;
+            }
         } else {
             let car_pos = self.rigid_body_set[self.car_handle].translation();
             self.player_pos = Vector::new(car_pos.x, car_pos.y + 0.9, car_pos.z);
+            self.player_vel_y = 0.0;
         }
 
         self.update_pedestrians(dt);
@@ -214,15 +224,34 @@ impl SimEngine {
         }
         self.player_pos = Vector::new(2.0, 1.0, 0.0);
         self.player_yaw = 0.0;
+        self.player_vel_y = 0.0;
         self.in_car = false;
     }
 
-    pub fn set_input(&mut self, throttle: f32, steer: f32, handbrake: f32, move_x: f32, move_z: f32) {
+    pub fn set_input(
+        &mut self,
+        throttle: f32,
+        steer: f32,
+        handbrake: f32,
+        move_x: f32,
+        move_z: f32,
+        run: f32,
+    ) {
         self.input_throttle = throttle.clamp(-1.0, 1.0);
         self.input_steer = steer.clamp(-1.0, 1.0);
         self.input_handbrake = handbrake.clamp(0.0, 1.0);
         self.input_move_x = move_x.clamp(-1.0, 1.0);
         self.input_move_z = move_z.clamp(-1.0, 1.0);
+        self.input_run = run.clamp(0.0, 1.0);
+    }
+
+    pub fn jump(&mut self) {
+        if self.in_car {
+            return;
+        }
+        if self.player_pos.y <= 1.01 {
+            self.player_vel_y = 6.2;
+        }
     }
 
     pub fn toggle_enter(&mut self) {
@@ -323,7 +352,6 @@ impl SimEngine {
             }
 
             self.player_pos += player_push;
-            self.player_pos.y = 1.0;
         }
     }
 }
