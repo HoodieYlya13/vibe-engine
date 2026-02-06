@@ -248,6 +248,11 @@ impl SimEngine {
 
         let world_half = 60.0;
         let car_pos = self.rigid_body_set[self.car_handle].translation();
+        let player_pos = self.player_pos;
+        let mut player_push = Vector::new(0.0, 0.0, 0.0);
+        let ped_radius = 0.4;
+        let player_radius = 0.5;
+        let car_radius = 2.0;
 
         for (i, pos) in self.ped_positions.iter_mut().enumerate() {
             let angle = self.sim_time * 0.35 + i as f32 * 0.37;
@@ -259,6 +264,29 @@ impl SimEngine {
             if dist_sq < 36.0 {
                 let avoid = Vector::new(dx, 0.0, dz);
                 dir += avoid.normalize_or_zero() * 2.5;
+            }
+
+            if !self.in_car {
+                let px = pos.x - player_pos.x;
+                let pz = pos.z - player_pos.z;
+                let pdist_sq = px * px + pz * pz;
+                let min_dist = ped_radius + player_radius;
+                if pdist_sq < min_dist * min_dist {
+                    let dist = pdist_sq.sqrt().max(0.001);
+                    let n = Vector::new(px / dist, 0.0, pz / dist);
+                    let push = min_dist - dist;
+                    *pos += n * push;
+                    player_push -= n * push;
+                }
+            }
+
+            let cdist_sq = dist_sq;
+            let car_min = car_radius + ped_radius;
+            if cdist_sq < car_min * car_min {
+                let dist = cdist_sq.sqrt().max(0.001);
+                let n = Vector::new(dx / dist, 0.0, dz / dist);
+                let push = (car_min - dist) * 1.2;
+                *pos += n * push;
             }
 
             let speed = 0.8 + (i % 7) as f32 * 0.1;
@@ -275,6 +303,11 @@ impl SimEngine {
             } else if pos.z < -world_half {
                 pos.z = world_half;
             }
+        }
+
+        if !self.in_car {
+            self.player_pos += player_push;
+            self.player_pos.y = 1.0;
         }
     }
 }
