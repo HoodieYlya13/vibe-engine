@@ -8,6 +8,18 @@ const BTN_LEFT: u32 = 1 << 2;
 const BTN_RIGHT: u32 = 1 << 3;
 const BTN_RUN: u32 = 1 << 4;
 const BTN_HANDBRAKE: u32 = 1 << 5;
+const ACTION_JUMP: u32 = 1 << 0;
+const ACTION_ENTER: u32 = 1 << 1;
+const ACTION_RESET: u32 = 1 << 2;
+const ACTION_PAUSE: u32 = 1 << 3;
+const CAR_STATE_FLOATS: u32 = 7;
+const PLAYER_STATE_FLOATS: u32 = 6;
+const PLAYER_STATE_OFFSET: u32 = CAR_STATE_FLOATS;
+const PED_STATE_OFFSET: u32 = CAR_STATE_FLOATS + PLAYER_STATE_FLOATS;
+const STATE_HEADER_INTS: u32 = 3;
+const INPUT_HEADER_INTS: u32 = 2;
+const INPUT_CAPACITY: u32 = 128;
+const INPUT_STRIDE: u32 = 3;
 
 #[wasm_bindgen]
 pub struct SimEngine {
@@ -42,6 +54,96 @@ pub struct SimEngine {
 #[wasm_bindgen]
 pub fn default_ped_count() -> u32 {
     DEFAULT_PED_COUNT
+}
+
+#[wasm_bindgen]
+pub fn btn_forward() -> u32 {
+    BTN_FORWARD
+}
+
+#[wasm_bindgen]
+pub fn btn_back() -> u32 {
+    BTN_BACK
+}
+
+#[wasm_bindgen]
+pub fn btn_left() -> u32 {
+    BTN_LEFT
+}
+
+#[wasm_bindgen]
+pub fn btn_right() -> u32 {
+    BTN_RIGHT
+}
+
+#[wasm_bindgen]
+pub fn btn_run() -> u32 {
+    BTN_RUN
+}
+
+#[wasm_bindgen]
+pub fn btn_handbrake() -> u32 {
+    BTN_HANDBRAKE
+}
+
+#[wasm_bindgen]
+pub fn action_jump() -> u32 {
+    ACTION_JUMP
+}
+
+#[wasm_bindgen]
+pub fn action_enter() -> u32 {
+    ACTION_ENTER
+}
+
+#[wasm_bindgen]
+pub fn action_reset() -> u32 {
+    ACTION_RESET
+}
+
+#[wasm_bindgen]
+pub fn action_pause() -> u32 {
+    ACTION_PAUSE
+}
+
+#[wasm_bindgen]
+pub fn car_state_floats() -> u32 {
+    CAR_STATE_FLOATS
+}
+
+#[wasm_bindgen]
+pub fn player_state_floats() -> u32 {
+    PLAYER_STATE_FLOATS
+}
+
+#[wasm_bindgen]
+pub fn player_state_offset() -> u32 {
+    PLAYER_STATE_OFFSET
+}
+
+#[wasm_bindgen]
+pub fn ped_state_offset() -> u32 {
+    PED_STATE_OFFSET
+}
+
+#[wasm_bindgen]
+pub fn state_header_ints() -> u32 {
+    STATE_HEADER_INTS
+}
+
+#[wasm_bindgen]
+pub fn input_header_ints() -> u32 {
+    INPUT_HEADER_INTS
+}
+
+#[wasm_bindgen]
+pub fn input_capacity() -> u32 {
+    INPUT_CAPACITY
+}
+
+#[wasm_bindgen]
+pub fn input_stride() -> u32 {
+    INPUT_STRIDE
 }
 
 #[wasm_bindgen]
