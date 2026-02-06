@@ -1,6 +1,13 @@
 use wasm_bindgen::prelude::*;
 use rapier3d::prelude::*;
 
+const BTN_FORWARD: u32 = 1 << 0;
+const BTN_BACK: u32 = 1 << 1;
+const BTN_LEFT: u32 = 1 << 2;
+const BTN_RIGHT: u32 = 1 << 3;
+const BTN_RUN: u32 = 1 << 4;
+const BTN_HANDBRAKE: u32 = 1 << 5;
+
 #[wasm_bindgen]
 pub struct SimEngine {
     pipeline: PhysicsPipeline,
@@ -15,16 +22,16 @@ pub struct SimEngine {
     gravity: Vector,
     integration_parameters: IntegrationParameters,
     car_handle: RigidBodyHandle,
-    input_throttle: f32,
-    input_steer: f32,
     input_handbrake: f32,
-    input_move_x: f32,
-    input_move_z: f32,
+    input_forward: f32,
+    input_right: f32,
     input_run: f32,
+    input_camera_yaw: f32,
     player_pos: Vector,
     player_yaw: f32,
     player_vel_y: f32,
     in_car: bool,
+    can_enter_car: bool,
     sim_time: f32,
     ped_positions: Vec<Vector>,
 }
@@ -90,16 +97,16 @@ impl SimEngine {
             gravity: Vector::new(0.0, -9.81, 0.0),
             integration_parameters: IntegrationParameters::default(),
             car_handle,
-            input_throttle: 0.0,
-            input_steer: 0.0,
             input_handbrake: 0.0,
-            input_move_x: 0.0,
-            input_move_z: 0.0,
+            input_forward: 0.0,
+            input_right: 0.0,
             input_run: 0.0,
+            input_camera_yaw: 0.0,
             player_pos: Vector::new(2.0, 1.0, 0.0),
             player_yaw: 0.0,
             player_vel_y: 0.0,
             in_car: false,
+            can_enter_car: false,
             sim_time: 0.0,
             ped_positions,
         }
@@ -114,8 +121,8 @@ impl SimEngine {
             let turn_rate = 1.8;
             let drift_turn = 3.2;
 
-            let throttle = if self.in_car { self.input_throttle } else { 0.0 };
-            let steer = if self.in_car { self.input_steer } else { 0.0 };
+            let throttle = if self.in_car { self.input_forward } else { 0.0 };
+            let steer = if self.in_car { self.input_right } else { 0.0 };
             let handbrake = if self.in_car { self.input_handbrake } else { 0.0 };
 
             if let Some(body) = self.rigid_body_set.get_mut(self.car_handle) {
@@ -141,7 +148,10 @@ impl SimEngine {
 
         if !self.in_car {
             let speed = if self.input_run > 0.5 { 7.0 } else { 4.0 };
-            let mut move_dir = Vector::new(self.input_move_x, 0.0, self.input_move_z);
+            let yaw = self.input_camera_yaw;
+            let forward = Vector::new(yaw.sin(), 0.0, yaw.cos());
+            let right = Vector::new(forward.z, 0.0, -forward.x);
+            let mut move_dir = forward * self.input_forward + right * self.input_right;
             let len = move_dir.length();
             if len > 1.0 {
                 move_dir /= len;
@@ -164,6 +174,12 @@ impl SimEngine {
             self.player_vel_y = 0.0;
         }
 
+        let car_pos = self.rigid_body_set[self.car_handle].translation();
+        let dx = self.player_pos.x - car_pos.x;
+        let dz = self.player_pos.z - car_pos.z;
+        let enter_radius = 4.0;
+        self.can_enter_car = !self.in_car && (dx * dx + dz * dz <= enter_radius * enter_radius);
+
         self.update_pedestrians(dt);
 
         self.pipeline.step(
@@ -183,7 +199,7 @@ impl SimEngine {
     }
 
     pub fn write_state(&self, out: &mut [f32]) {
-        let needed = 12 + self.ped_positions.len() * 3;
+        let needed = 13 + self.ped_positions.len() * 3;
         if out.len() < needed {
             return;
         }
@@ -205,8 +221,9 @@ impl SimEngine {
         out[9] = self.player_pos.z;
         out[10] = self.player_yaw;
         out[11] = if self.in_car { 1.0 } else { 0.0 };
+        out[12] = if self.can_enter_car { 1.0 } else { 0.0 };
 
-        let mut cursor = 12;
+        let mut cursor = 13;
         for pos in &self.ped_positions {
             out[cursor] = pos.x;
             out[cursor + 1] = pos.y;
@@ -226,23 +243,20 @@ impl SimEngine {
         self.player_yaw = 0.0;
         self.player_vel_y = 0.0;
         self.in_car = false;
+        self.can_enter_car = false;
     }
 
-    pub fn set_input(
-        &mut self,
-        throttle: f32,
-        steer: f32,
-        handbrake: f32,
-        move_x: f32,
-        move_z: f32,
-        run: f32,
-    ) {
-        self.input_throttle = throttle.clamp(-1.0, 1.0);
-        self.input_steer = steer.clamp(-1.0, 1.0);
-        self.input_handbrake = handbrake.clamp(0.0, 1.0);
-        self.input_move_x = move_x.clamp(-1.0, 1.0);
-        self.input_move_z = move_z.clamp(-1.0, 1.0);
-        self.input_run = run.clamp(0.0, 1.0);
+    pub fn set_input_buttons(&mut self, buttons: u32, camera_yaw: f32) {
+        let forward = if (buttons & BTN_FORWARD) != 0 { 1.0 } else { 0.0 };
+        let back = if (buttons & BTN_BACK) != 0 { 1.0 } else { 0.0 };
+        let left = if (buttons & BTN_LEFT) != 0 { 1.0 } else { 0.0 };
+        let right = if (buttons & BTN_RIGHT) != 0 { 1.0 } else { 0.0 };
+
+        self.input_forward = (forward - back).clamp(-1.0, 1.0);
+        self.input_right = (right - left).clamp(-1.0, 1.0);
+        self.input_handbrake = if (buttons & BTN_HANDBRAKE) != 0 { 1.0 } else { 0.0 };
+        self.input_run = if (buttons & BTN_RUN) != 0 { 1.0 } else { 0.0 };
+        self.input_camera_yaw = camera_yaw;
     }
 
     pub fn jump(&mut self) {
