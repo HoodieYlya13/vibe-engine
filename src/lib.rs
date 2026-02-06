@@ -19,6 +19,10 @@ const HUD_HINT_EXIT: u32 = 2;
 const VEHICLE_MAX_ENGINE_FORCE: f32 = 2200.0;
 const VEHICLE_MAX_BRAKE_FORCE: f32 = 45.0;
 const VEHICLE_MAX_STEER: f32 = 0.6;
+const WORLD_HALF: f32 = 60.0;
+const WALL_THICKNESS: f32 = 1.5;
+const WALL_HEIGHT: f32 = 6.0;
+const PLAYER_RADIUS: f32 = 0.6;
 const CAR_STATE_FLOATS: u32 = 7;
 const PLAYER_STATE_FLOATS: u32 = 5;
 const HUD_STATE_FLOATS: u32 = 1;
@@ -214,9 +218,34 @@ impl SimEngine {
         let ground_body = RigidBodyBuilder::fixed()
             .translation(Vector::new(0.0, -0.5, 0.0))
             .build();
-        let ground_collider = ColliderBuilder::cuboid(50.0, 0.5, 50.0).build();
+        let ground_collider =
+            ColliderBuilder::cuboid(WORLD_HALF, 0.5, WORLD_HALF).build();
         let ground_handle = rigid_body_set.insert(ground_body);
         collider_set.insert_with_parent(ground_collider, ground_handle, &mut rigid_body_set);
+
+        let wall_body = RigidBodyBuilder::fixed().build();
+        let wall_handle = rigid_body_set.insert(wall_body);
+        let wall_x = WORLD_HALF + WALL_THICKNESS;
+        let wall_z = WORLD_HALF + WALL_THICKNESS;
+        let wall_depth = WORLD_HALF + WALL_THICKNESS;
+        let wall_height = WALL_HEIGHT;
+        let wall_thickness = WALL_THICKNESS;
+        let wall_x_pos = ColliderBuilder::cuboid(wall_thickness, wall_height, wall_depth)
+            .translation(Vector::new(wall_x, wall_height, 0.0))
+            .build();
+        let wall_x_neg = ColliderBuilder::cuboid(wall_thickness, wall_height, wall_depth)
+            .translation(Vector::new(-wall_x, wall_height, 0.0))
+            .build();
+        let wall_z_pos = ColliderBuilder::cuboid(wall_depth, wall_height, wall_thickness)
+            .translation(Vector::new(0.0, wall_height, wall_z))
+            .build();
+        let wall_z_neg = ColliderBuilder::cuboid(wall_depth, wall_height, wall_thickness)
+            .translation(Vector::new(0.0, wall_height, -wall_z))
+            .build();
+        collider_set.insert_with_parent(wall_x_pos, wall_handle, &mut rigid_body_set);
+        collider_set.insert_with_parent(wall_x_neg, wall_handle, &mut rigid_body_set);
+        collider_set.insert_with_parent(wall_z_pos, wall_handle, &mut rigid_body_set);
+        collider_set.insert_with_parent(wall_z_neg, wall_handle, &mut rigid_body_set);
 
         let car_body = RigidBodyBuilder::dynamic()
             .translation(Vector::new(0.0, 1.0, 0.0))
@@ -385,6 +414,17 @@ impl SimEngine {
             if self.player_pos.y <= 1.0 {
                 self.player_pos.y = 1.0;
                 self.player_vel_y = 0.0;
+            }
+            let max_bound = WORLD_HALF - PLAYER_RADIUS;
+            if self.player_pos.x > max_bound {
+                self.player_pos.x = max_bound;
+            } else if self.player_pos.x < -max_bound {
+                self.player_pos.x = -max_bound;
+            }
+            if self.player_pos.z > max_bound {
+                self.player_pos.z = max_bound;
+            } else if self.player_pos.z < -max_bound {
+                self.player_pos.z = -max_bound;
             }
         } else {
             let car_pos = self.rigid_body_set[self.car_handle].translation();
@@ -575,7 +615,7 @@ impl SimEngine {
             return;
         }
 
-        let world_half = 60.0;
+        let world_half = WORLD_HALF;
         let car_body = &self.rigid_body_set[self.car_handle];
         let car_pos = car_body.translation();
         let player_pos = self.player_pos;
@@ -624,16 +664,17 @@ impl SimEngine {
             let speed = 0.8 + (i % 7) as f32 * 0.1;
             *pos += dir * speed * dt;
 
-            if pos.x > world_half {
-                pos.x = -world_half;
-            } else if pos.x < -world_half {
-                pos.x = world_half;
+            let limit = world_half - ped_radius;
+            if pos.x > limit {
+                pos.x = limit;
+            } else if pos.x < -limit {
+                pos.x = -limit;
             }
 
-            if pos.z > world_half {
-                pos.z = -world_half;
-            } else if pos.z < -world_half {
-                pos.z = world_half;
+            if pos.z > limit {
+                pos.z = limit;
+            } else if pos.z < -limit {
+                pos.z = -limit;
             }
         }
 
