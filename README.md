@@ -2,14 +2,15 @@
 
 **Status:** 🚧 In Active Development
 
-A dedicated physics and logic engine built with **Rust** and compiled to **WebAssembly (WASM)** via `wasm-pack`. This engine powers the _Vibe Heist_ project, handling performant 3D physics calculations off the main JavaScript thread.
+A dedicated physics and logic engine built with **Rust** and compiled to **WebAssembly (WASM)** via `wasm-pack`. This engine powers the **WebGPU-accelerated** _Vibe Heist_ project, handling performant 3D physics calculations off the main JavaScript thread.
 
 ## ⚡ Tech Stack
 
-- **Language:** Rust (Edition 2024)
-- **Physics:** Rapier3D (Simd-stable)
+- **Language:** Rust
+- **Physics:** Rapier3D
 - **Math:** Nalgebra
 - **Compilation:** WASM-Bindgen
+- **Compute:** WebGPU
 
 ## 🔧 Build Instructions
 
