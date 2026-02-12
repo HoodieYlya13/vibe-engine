@@ -35,7 +35,7 @@ pub(crate) const CAR_HALF_LENGTH: f32 = 3.2;
 
 pub(crate) const BLOCK_STATE_STRIDE: u32 = 6;
 pub(crate) type BlockDef = (f32, f32, f32, f32, f32, f32);
-pub(crate) const BLOCKS: [BlockDef; 7] = [
+pub(crate) const BLOCKS: &[BlockDef] = &[
     (6.0, 0.5, 6.0, 1.2, 0.5, 1.2),
     (9.0, 1.0, 6.0, 1.2, 1.0, 1.2),
     (12.0, 1.6, 6.0, 1.2, 1.6, 1.2),
@@ -44,6 +44,11 @@ pub(crate) const BLOCKS: [BlockDef; 7] = [
     (-12.0, 1.5, -6.0, 1.5, 1.5, 1.5),
     (0.0, 0.9, 10.0, 2.2, 0.9, 2.2),
 ];
+
+pub(crate) const RAMP_STATE_STRIDE: u32 = 5;
+pub(crate) type RampDef = (f32, f32, f32, f32, f32);
+// (x_start, x_end, z_center, half_width, height)
+pub(crate) const RAMPS: &[RampDef] = &[(14.0, 30.0, -16.0, 2.6, 3.0)];
 
 pub(crate) const CAR_STATE_FLOATS: u32 = 7;
 pub(crate) const PLAYER_STATE_FLOATS: u32 = 5;
@@ -219,5 +224,32 @@ pub fn write_blocks(out: &mut [f32]) {
         out[cursor + 4] = block.4;
         out[cursor + 5] = block.5;
         cursor += BLOCK_STATE_STRIDE as usize;
+    }
+}
+
+#[wasm_bindgen]
+pub fn ramp_count() -> u32 {
+    RAMPS.len() as u32
+}
+
+#[wasm_bindgen]
+pub fn ramp_state_stride() -> u32 {
+    RAMP_STATE_STRIDE
+}
+
+#[wasm_bindgen]
+pub fn write_ramps(out: &mut [f32]) {
+    let needed = RAMPS.len() * RAMP_STATE_STRIDE as usize;
+    if out.len() < needed {
+        return;
+    }
+    let mut cursor = 0usize;
+    for ramp in RAMPS {
+        out[cursor] = ramp.0;
+        out[cursor + 1] = ramp.1;
+        out[cursor + 2] = ramp.2;
+        out[cursor + 3] = ramp.3;
+        out[cursor + 4] = ramp.4;
+        cursor += RAMP_STATE_STRIDE as usize;
     }
 }

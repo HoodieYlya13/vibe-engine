@@ -3,7 +3,7 @@ use wasm_bindgen::prelude::*;
 
 use crate::constants::{
     BLOCKS, CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, PLAYER_FOOT_RADIUS,
-    PLAYER_JUMP_SPEED, PLAYER_RADIUS, PLAYER_STAND_HEIGHT, PLAYER_STEP_DOWN, WORLD_HALF,
+    PLAYER_JUMP_SPEED, PLAYER_RADIUS, PLAYER_STAND_HEIGHT, PLAYER_STEP_DOWN, RAMPS, WORLD_HALF,
 };
 use crate::state::SimEngine;
 
@@ -32,6 +32,7 @@ impl SimEngine {
 
         self.player.pos += move_dir * speed * dt;
         self.resolve_block_horizontal_collisions();
+        self.resolve_ramp_horizontal_collisions();
 
         let prev_y = self.player.pos.y;
         self.player.vel_y += -9.81 * dt;
@@ -55,6 +56,15 @@ impl SimEngine {
         ) && car_ground > grounded_at
         {
             grounded_at = car_ground;
+        }
+        if let Some(ramp_ground) = self.ramp_ground_height_at(
+            self.player.pos.x,
+            self.player.pos.z,
+            prev_y,
+            self.player.pos.y,
+        ) && ramp_ground > grounded_at
+        {
+            grounded_at = ramp_ground;
         }
 
         if self.player.pos.y <= grounded_at {
@@ -88,6 +98,43 @@ impl SimEngine {
                 self.player.pos.x += if dx >= 0.0 { overlap_x } else { -overlap_x };
             } else {
                 self.player.pos.z += if dz >= 0.0 { overlap_z } else { -overlap_z };
+            }
+        }
+    }
+
+    fn resolve_ramp_horizontal_collisions(&mut self) {
+        let radius = PLAYER_FOOT_RADIUS;
+        for ramp in RAMPS {
+            let x0 = ramp.0;
+            let x1 = ramp.1;
+            let z0 = ramp.2 - ramp.3;
+            let z1 = ramp.2 + ramp.3;
+            let h = ramp.4;
+
+            let run = (x1 - x0).max(0.001);
+            let t = ((self.player.pos.x - x0) / run).clamp(0.0, 1.0);
+            let stand_at_x = t * h + PLAYER_STAND_HEIGHT;
+            if self.player.pos.y > stand_at_x + 0.2 {
+                continue;
+            }
+
+            // Ramp side walls.
+            if self.player.pos.x >= x0 - radius && self.player.pos.x <= x1 + radius {
+                if self.player.pos.z > z1 && self.player.pos.z < z1 + radius {
+                    self.player.pos.z = z1 + radius;
+                } else if self.player.pos.z < z0 && self.player.pos.z > z0 - radius {
+                    self.player.pos.z = z0 - radius;
+                }
+            }
+
+            // Ramp back wall at the high edge.
+            if self.player.pos.z >= z0 - radius
+                && self.player.pos.z <= z1 + radius
+                && self.player.pos.x > x1
+                && self.player.pos.x < x1 + radius
+                && self.player.pos.y <= h + PLAYER_STAND_HEIGHT + 0.2
+            {
+                self.player.pos.x = x1 + radius;
             }
         }
     }
@@ -162,6 +209,42 @@ impl SimEngine {
 
         Some(stand)
     }
+
+    fn ramp_ground_height_at(
+        &self,
+        x: f32,
+        z: f32,
+        prev_center_y: f32,
+        current_center_y: f32,
+    ) -> Option<f32> {
+        let mut best: Option<f32> = None;
+        for ramp in RAMPS {
+            let x0 = ramp.0;
+            let x1 = ramp.1;
+            let z0 = ramp.2 - ramp.3;
+            let z1 = ramp.2 + ramp.3;
+            let h = ramp.4;
+
+            if x < x0 || x > x1 || z < z0 || z > z1 {
+                continue;
+            }
+
+            let run = (x1 - x0).max(0.001);
+            let t = ((x - x0) / run).clamp(0.0, 1.0);
+            let stand = t * h + PLAYER_STAND_HEIGHT;
+
+            if prev_center_y < stand - PLAYER_STEP_DOWN
+                || current_center_y > stand + 0.05
+                || self.player.vel_y > 0.0
+            {
+                continue;
+            }
+
+            best = Some(best.map_or(stand, |v| v.max(stand)));
+        }
+
+        best
+    }
 }
 
 #[wasm_bindgen]
@@ -193,6 +276,17 @@ impl SimEngine {
             self.player.pos.y,
             self.player.pos.y,
         ) && (self.player.pos.y - car_ground).abs() <= 0.08
+        {
+            self.player.vel_y = PLAYER_JUMP_SPEED;
+            return;
+        }
+
+        if let Some(ramp_ground) = self.ramp_ground_height_at(
+            self.player.pos.x,
+            self.player.pos.z,
+            self.player.pos.y,
+            self.player.pos.y,
+        ) && (self.player.pos.y - ramp_ground).abs() <= 0.08
         {
             self.player.vel_y = PLAYER_JUMP_SPEED;
         }

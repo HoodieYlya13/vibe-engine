@@ -2,7 +2,7 @@ use rapier3d::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::constants::{
-    BLOCKS, DEFAULT_PED_COUNT, PLAYER_STAND_HEIGHT, WALL_HEIGHT, WALL_THICKNESS, WORLD_HALF,
+    BLOCKS, DEFAULT_PED_COUNT, PLAYER_STAND_HEIGHT, RAMPS, WALL_HEIGHT, WALL_THICKNESS, WORLD_HALF,
 };
 use crate::state::{CrowdState, InputState, PlayerState, RuntimeState, SimEngine};
 use crate::vehicle::create_vehicle;
@@ -57,6 +57,27 @@ impl SimEngine {
                 .translation(Vector::new(block.0, block.1, block.2))
                 .build();
             collider_set.insert_with_parent(collider, block_handle, &mut rigid_body_set);
+        }
+
+        let ramp_body = RigidBodyBuilder::fixed().build();
+        let ramp_handle = rigid_body_set.insert(ramp_body);
+        for ramp in RAMPS {
+            let x0 = ramp.0;
+            let x1 = ramp.1;
+            let z0 = ramp.2 - ramp.3;
+            let z1 = ramp.2 + ramp.3;
+            let h = ramp.4;
+            let points = [
+                Vector::new(x0, 0.0, z0),
+                Vector::new(x0, 0.0, z1),
+                Vector::new(x1, 0.0, z0),
+                Vector::new(x1, 0.0, z1),
+                Vector::new(x1, h, z0),
+                Vector::new(x1, h, z1),
+            ];
+            if let Some(collider) = ColliderBuilder::convex_hull(&points) {
+                collider_set.insert_with_parent(collider.build(), ramp_handle, &mut rigid_body_set);
+            }
         }
 
         let vehicle = create_vehicle(&mut rigid_body_set, &mut collider_set);
