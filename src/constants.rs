@@ -47,8 +47,8 @@ pub(crate) const BLOCKS: &[BlockDef] = &[
 
 pub(crate) const RAMP_STATE_STRIDE: u32 = 5;
 pub(crate) type RampDef = (f32, f32, f32, f32, f32);
-// (x_start, x_end, z_center, half_width, height)
-pub(crate) const RAMPS: &[RampDef] = &[(14.0, 30.0, -16.0, 2.6, 3.0)];
+// (z_start, z_end, x_center, half_width, height)
+pub(crate) const RAMPS: &[RampDef] = &[(-8.0, -24.0, 0.0, 2.6, 3.0)];
 
 pub(crate) const CAR_STATE_FLOATS: u32 = 7;
 pub(crate) const PLAYER_STATE_FLOATS: u32 = 5;

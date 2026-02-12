@@ -62,17 +62,17 @@ impl SimEngine {
         let ramp_body = RigidBodyBuilder::fixed().build();
         let ramp_handle = rigid_body_set.insert(ramp_body);
         for ramp in RAMPS {
-            let x0 = ramp.0;
-            let x1 = ramp.1;
-            let z0 = ramp.2 - ramp.3;
-            let z1 = ramp.2 + ramp.3;
+            let z0 = ramp.0;
+            let z1 = ramp.1;
+            let x0 = ramp.2 - ramp.3;
+            let x1 = ramp.2 + ramp.3;
             let h = ramp.4;
             let points = [
                 Vector::new(x0, 0.0, z0),
-                Vector::new(x0, 0.0, z1),
                 Vector::new(x1, 0.0, z0),
+                Vector::new(x0, 0.0, z1),
                 Vector::new(x1, 0.0, z1),
-                Vector::new(x1, h, z0),
+                Vector::new(x0, h, z1),
                 Vector::new(x1, h, z1),
             ];
             if let Some(collider) = ColliderBuilder::convex_hull(&points) {
