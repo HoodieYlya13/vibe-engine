@@ -804,7 +804,7 @@ impl SimEngine {
         let player_pos = self.player_pos;
         let mut player_push = Vector::new(0.0, 0.0, 0.0);
         let ped_radius = 0.4;
-        let player_radius = 0.5;
+        let player_radius = PLAYER_FOOT_RADIUS;
         let car_radius = 1.2;
         let car_speed = car_body.linvel().length();
         let car_push_scale = 1.2 + (car_speed * 0.1).min(2.0);
@@ -865,16 +865,34 @@ impl SimEngine {
         if !self.in_car {
             let dx = player_pos.x - car_pos.x;
             let dz = player_pos.z - car_pos.z;
-            let dist_sq = dx * dx + dz * dz;
             let roof_center_y = car_pos.y + CAR_HALF_HEIGHT + PLAYER_STAND_HEIGHT;
             let player_above_roof = player_pos.y >= roof_center_y - 0.1;
             if !player_above_roof {
-                let min_dist = player_radius + car_radius;
-                if dist_sq < min_dist * min_dist {
-                    let dist = dist_sq.sqrt().max(0.001);
-                    let n = Vector::new(dx / dist, 0.0, dz / dist);
-                    let push = min_dist - dist;
-                    player_push += n * push;
+                let rot = car_body.rotation();
+                let mut right_h = rot * Vector::new(1.0, 0.0, 0.0);
+                right_h.y = 0.0;
+                let mut forward_h = rot * Vector::new(0.0, 0.0, 1.0);
+                forward_h.y = 0.0;
+                if right_h.length_squared() < 0.0001 || forward_h.length_squared() < 0.0001 {
+                    right_h = Vector::new(1.0, 0.0, 0.0);
+                    forward_h = Vector::new(0.0, 0.0, 1.0);
+                } else {
+                    right_h = right_h.normalize();
+                    forward_h = forward_h.normalize();
+                }
+
+                let local_x = dx * right_h.x + dz * right_h.z;
+                let local_z = dx * forward_h.x + dz * forward_h.z;
+                let overlap_x = CAR_HALF_WIDTH + player_radius - local_x.abs();
+                let overlap_z = CAR_HALF_LENGTH + player_radius - local_z.abs();
+                if overlap_x > 0.0 && overlap_z > 0.0 {
+                    if overlap_x < overlap_z {
+                        let sign = if local_x >= 0.0 { 1.0 } else { -1.0 };
+                        player_push += right_h * (overlap_x * sign);
+                    } else {
+                        let sign = if local_z >= 0.0 { 1.0 } else { -1.0 };
+                        player_push += forward_h * (overlap_z * sign);
+                    }
                 }
             }
 
