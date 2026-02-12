@@ -1,6 +1,6 @@
-use wasm_bindgen::prelude::*;
-use rapier3d::prelude::*;
 use rapier3d::control::{DynamicRayCastVehicleController, WheelTuning};
+use rapier3d::prelude::*;
+use wasm_bindgen::prelude::*;
 
 const DEFAULT_PED_COUNT: u32 = 1500;
 const BTN_FORWARD: u32 = 1 << 0;
@@ -54,6 +54,38 @@ const INPUT_HEADER_INTS: u32 = 2;
 const INPUT_CAPACITY: u32 = 128;
 const INPUT_STRIDE: u32 = 3;
 
+#[derive(Clone, Copy)]
+struct InputState {
+    forward: f32,
+    right: f32,
+    run: f32,
+    handbrake: f32,
+    camera_yaw: f32,
+}
+
+#[derive(Clone, Copy)]
+struct PlayerState {
+    pos: Vector,
+    yaw: f32,
+    vel_y: f32,
+    in_car: bool,
+}
+
+struct VehicleState {
+    body_handle: RigidBodyHandle,
+    controller: DynamicRayCastVehicleController,
+}
+
+struct RuntimeState {
+    paused: bool,
+    allow_pause: bool,
+    sim_time: f32,
+}
+
+struct CrowdState {
+    ped_positions: Vec<Vector>,
+}
+
 #[wasm_bindgen]
 pub struct SimEngine {
     pipeline: PhysicsPipeline,
@@ -67,21 +99,11 @@ pub struct SimEngine {
     ccd_solver: CCDSolver,
     gravity: Vector,
     integration_parameters: IntegrationParameters,
-    car_handle: RigidBodyHandle,
-    vehicle: DynamicRayCastVehicleController,
-    input_handbrake: f32,
-    input_forward: f32,
-    input_right: f32,
-    input_run: f32,
-    input_camera_yaw: f32,
-    player_pos: Vector,
-    player_yaw: f32,
-    player_vel_y: f32,
-    in_car: bool,
-    paused: bool,
-    allow_pause: bool,
-    sim_time: f32,
-    ped_positions: Vec<Vector>,
+    vehicle: VehicleState,
+    input: InputState,
+    player: PlayerState,
+    runtime: RuntimeState,
+    crowd: CrowdState,
 }
 
 #[wasm_bindgen]
@@ -263,8 +285,7 @@ impl SimEngine {
         let ground_body = RigidBodyBuilder::fixed()
             .translation(Vector::new(0.0, -0.5, 0.0))
             .build();
-        let ground_collider =
-            ColliderBuilder::cuboid(WORLD_HALF, 0.5, WORLD_HALF).build();
+        let ground_collider = ColliderBuilder::cuboid(WORLD_HALF, 0.5, WORLD_HALF).build();
         let ground_handle = rigid_body_set.insert(ground_body);
         collider_set.insert_with_parent(ground_collider, ground_handle, &mut rigid_body_set);
 
@@ -298,10 +319,11 @@ impl SimEngine {
             .linear_damping(0.4)
             .angular_damping(1.2)
             .build();
-        let car_collider = ColliderBuilder::cuboid(CAR_HALF_WIDTH, CAR_HALF_HEIGHT, CAR_HALF_LENGTH)
-            .restitution(0.1)
-            .friction(1.2)
-            .build();
+        let car_collider =
+            ColliderBuilder::cuboid(CAR_HALF_WIDTH, CAR_HALF_HEIGHT, CAR_HALF_LENGTH)
+                .restitution(0.1)
+                .friction(1.2)
+                .build();
         let car_handle = rigid_body_set.insert(car_body);
         collider_set.insert_with_parent(car_collider, car_handle, &mut rigid_body_set);
 
@@ -374,11 +396,7 @@ impl SimEngine {
         for i in 0..ped_count {
             let x = (i % cols) as f32;
             let z = (i / cols) as f32;
-            let pos = Vector::new(
-                (x - half) * spacing,
-                0.8,
-                (z - half) * spacing,
-            );
+            let pos = Vector::new((x - half) * spacing, 0.8, (z - half) * spacing);
             ped_positions.push(pos);
         }
 
@@ -394,35 +412,55 @@ impl SimEngine {
             ccd_solver: CCDSolver::new(),
             gravity: Vector::new(0.0, -9.81, 0.0),
             integration_parameters: IntegrationParameters::default(),
-            car_handle,
-            vehicle,
-            input_handbrake: 0.0,
-            input_forward: 0.0,
-            input_right: 0.0,
-            input_run: 0.0,
-            input_camera_yaw: 0.0,
-            player_pos: Vector::new(2.0, 1.0, 0.0),
-            player_yaw: 0.0,
-            player_vel_y: 0.0,
-            in_car: false,
-            paused: false,
-            allow_pause: true,
-            sim_time: 0.0,
-            ped_positions,
+            vehicle: VehicleState {
+                body_handle: car_handle,
+                controller: vehicle,
+            },
+            input: InputState {
+                forward: 0.0,
+                right: 0.0,
+                run: 0.0,
+                handbrake: 0.0,
+                camera_yaw: 0.0,
+            },
+            player: PlayerState {
+                pos: Vector::new(2.0, 1.0, 0.0),
+                yaw: 0.0,
+                vel_y: 0.0,
+                in_car: false,
+            },
+            runtime: RuntimeState {
+                paused: false,
+                allow_pause: true,
+                sim_time: 0.0,
+            },
+            crowd: CrowdState { ped_positions },
         }
     }
 
     pub fn step(&mut self) {
-        if self.paused {
+        if self.runtime.paused {
             return;
         }
         let dt = self.integration_parameters.dt;
-        self.sim_time += dt;
+        self.runtime.sim_time += dt;
 
         {
-            let throttle = if self.in_car { self.input_forward } else { 0.0 };
-            let steer = if self.in_car { -self.input_right } else { 0.0 };
-            let handbrake = if self.in_car { self.input_handbrake } else { 0.0 };
+            let throttle = if self.player.in_car {
+                self.input.forward
+            } else {
+                0.0
+            };
+            let steer = if self.player.in_car {
+                -self.input.right
+            } else {
+                0.0
+            };
+            let handbrake = if self.player.in_car {
+                self.input.handbrake
+            } else {
+                0.0
+            };
 
             let engine_force = throttle * VEHICLE_MAX_ENGINE_FORCE;
             let brake_force = if handbrake > 0.5 {
@@ -432,7 +470,7 @@ impl SimEngine {
             };
             let steer_angle = steer * VEHICLE_MAX_STEER;
 
-            for (index, wheel) in self.vehicle.wheels_mut().iter_mut().enumerate() {
+            for (index, wheel) in self.vehicle.controller.wheels_mut().iter_mut().enumerate() {
                 wheel.engine_force = engine_force;
                 wheel.brake = brake_force;
                 wheel.steering = if index < 2 { steer_angle } else { 0.0 };
@@ -442,68 +480,74 @@ impl SimEngine {
                 self.narrow_phase.query_dispatcher(),
                 &mut self.rigid_body_set,
                 &mut self.collider_set,
-                QueryFilter::default().exclude_rigid_body(self.car_handle),
+                QueryFilter::default().exclude_rigid_body(self.vehicle.body_handle),
             );
-            self.vehicle.update_vehicle(dt, queries);
+            self.vehicle.controller.update_vehicle(dt, queries);
         }
 
-        if !self.in_car {
-            let speed = if self.input_run > 0.5 { 7.0 } else { 4.0 };
-            let yaw = self.input_camera_yaw;
+        if !self.player.in_car {
+            let speed = if self.input.run > 0.5 { 7.0 } else { 4.0 };
+            let yaw = self.input.camera_yaw;
             let forward = Vector::new(yaw.sin(), 0.0, yaw.cos());
             let right = Vector::new(forward.z, 0.0, -forward.x);
-            let mut move_dir = forward * self.input_forward + right * self.input_right;
+            let mut move_dir = forward * self.input.forward + right * self.input.right;
             let len = move_dir.length();
             if len > 1.0 {
                 move_dir /= len;
             }
 
             if len > 0.001 {
-                self.player_yaw = move_dir.x.atan2(move_dir.z);
+                self.player.yaw = move_dir.x.atan2(move_dir.z);
             }
 
-            self.player_pos += move_dir * speed * dt;
+            self.player.pos += move_dir * speed * dt;
             self.resolve_block_horizontal_collisions();
 
-            let prev_y = self.player_pos.y;
-            self.player_vel_y += -9.81 * dt;
-            self.player_pos.y += self.player_vel_y * dt;
+            let prev_y = self.player.pos.y;
+            self.player.vel_y += -9.81 * dt;
+            self.player.pos.y += self.player.vel_y * dt;
 
             let mut grounded_at = PLAYER_STAND_HEIGHT;
-            if let Some(block_ground) =
-                self.block_ground_height_at(self.player_pos.x, self.player_pos.z, prev_y, self.player_pos.y)
-            {
+            if let Some(block_ground) = self.block_ground_height_at(
+                self.player.pos.x,
+                self.player.pos.z,
+                prev_y,
+                self.player.pos.y,
+            ) {
                 if block_ground > grounded_at {
                     grounded_at = block_ground;
                 }
             }
-            if let Some(car_ground) =
-                self.car_ground_height_at(self.player_pos.x, self.player_pos.z, prev_y, self.player_pos.y)
-            {
+            if let Some(car_ground) = self.car_ground_height_at(
+                self.player.pos.x,
+                self.player.pos.z,
+                prev_y,
+                self.player.pos.y,
+            ) {
                 if car_ground > grounded_at {
                     grounded_at = car_ground;
                 }
             }
 
-            if self.player_pos.y <= grounded_at {
-                self.player_pos.y = grounded_at;
-                self.player_vel_y = 0.0;
+            if self.player.pos.y <= grounded_at {
+                self.player.pos.y = grounded_at;
+                self.player.vel_y = 0.0;
             }
             let max_bound = WORLD_HALF - PLAYER_RADIUS;
-            if self.player_pos.x > max_bound {
-                self.player_pos.x = max_bound;
-            } else if self.player_pos.x < -max_bound {
-                self.player_pos.x = -max_bound;
+            if self.player.pos.x > max_bound {
+                self.player.pos.x = max_bound;
+            } else if self.player.pos.x < -max_bound {
+                self.player.pos.x = -max_bound;
             }
-            if self.player_pos.z > max_bound {
-                self.player_pos.z = max_bound;
-            } else if self.player_pos.z < -max_bound {
-                self.player_pos.z = -max_bound;
+            if self.player.pos.z > max_bound {
+                self.player.pos.z = max_bound;
+            } else if self.player.pos.z < -max_bound {
+                self.player.pos.z = -max_bound;
             }
         } else {
-            let car_pos = self.rigid_body_set[self.car_handle].translation();
-            self.player_pos = Vector::new(car_pos.x, car_pos.y + 0.9, car_pos.z);
-            self.player_vel_y = 0.0;
+            let car_pos = self.rigid_body_set[self.vehicle.body_handle].translation();
+            self.player.pos = Vector::new(car_pos.x, car_pos.y + 0.9, car_pos.z);
+            self.player.vel_y = 0.0;
         }
 
         self.update_pedestrians(dt);
@@ -526,12 +570,12 @@ impl SimEngine {
 
     pub fn write_state(&self, out: &mut [f32]) {
         let needed =
-            PED_STATE_OFFSET as usize + self.ped_positions.len() * PED_STATE_STRIDE as usize;
+            PED_STATE_OFFSET as usize + self.crowd.ped_positions.len() * PED_STATE_STRIDE as usize;
         if out.len() < needed {
             return;
         }
 
-        let body = &self.rigid_body_set[self.car_handle];
+        let body = &self.rigid_body_set[self.vehicle.body_handle];
         let translation = body.translation();
         let rotation = body.rotation();
 
@@ -544,18 +588,18 @@ impl SimEngine {
         out[6] = rotation.w;
 
         let player_offset = PLAYER_STATE_OFFSET as usize;
-        out[player_offset] = self.player_pos.x;
-        out[player_offset + 1] = self.player_pos.y;
-        out[player_offset + 2] = self.player_pos.z;
-        out[player_offset + 3] = self.player_yaw;
-        out[player_offset + 4] = if self.in_car { 1.0 } else { 0.0 };
+        out[player_offset] = self.player.pos.x;
+        out[player_offset + 1] = self.player.pos.y;
+        out[player_offset + 2] = self.player.pos.z;
+        out[player_offset + 3] = self.player.yaw;
+        out[player_offset + 4] = if self.player.in_car { 1.0 } else { 0.0 };
 
         let car_pos = body.translation();
-        let dx = self.player_pos.x - car_pos.x;
-        let dz = self.player_pos.z - car_pos.z;
+        let dx = self.player.pos.x - car_pos.x;
+        let dz = self.player.pos.z - car_pos.z;
         let enter_radius = 4.0;
-        let can_enter = !self.in_car && (dx * dx + dz * dz <= enter_radius * enter_radius);
-        let hud_hint = if self.in_car {
+        let can_enter = !self.player.in_car && (dx * dx + dz * dz <= enter_radius * enter_radius);
+        let hud_hint = if self.player.in_car {
             HUD_HINT_EXIT
         } else if can_enter {
             HUD_HINT_ENTER
@@ -567,15 +611,19 @@ impl SimEngine {
         out[hud_offset] = hud_hint as f32;
 
         let cam_offset = CAM_STATE_OFFSET as usize;
-        let target = if self.in_car { car_pos } else { self.player_pos };
-        let target_y = if self.in_car { 0.6 } else { 0.9 };
+        let target = if self.player.in_car {
+            car_pos
+        } else {
+            self.player.pos
+        };
+        let target_y = if self.player.in_car { 0.6 } else { 0.9 };
         out[cam_offset] = target.x;
         out[cam_offset + 1] = target.y + target_y;
         out[cam_offset + 2] = target.z;
-        out[cam_offset + 3] = if self.in_car { 14.0 } else { 8.0 };
+        out[cam_offset + 3] = if self.player.in_car { 14.0 } else { 8.0 };
 
         let mut cursor = PED_STATE_OFFSET as usize;
-        for pos in &self.ped_positions {
+        for pos in &self.crowd.ped_positions {
             out[cursor] = 1.0;
             out[cursor + 1] = 0.0;
             out[cursor + 2] = 0.0;
@@ -597,11 +645,11 @@ impl SimEngine {
     }
 
     pub fn state_len(&self) -> usize {
-        PED_STATE_OFFSET as usize + self.ped_positions.len() * PED_STATE_STRIDE as usize
+        PED_STATE_OFFSET as usize + self.crowd.ped_positions.len() * PED_STATE_STRIDE as usize
     }
 
     pub fn ped_count(&self) -> u32 {
-        self.ped_positions.len() as u32
+        self.crowd.ped_positions.len() as u32
     }
 
     pub fn dt(&self) -> f32 {
@@ -609,17 +657,17 @@ impl SimEngine {
     }
 
     pub fn reset_car(&mut self) {
-        if let Some(body) = self.rigid_body_set.get_mut(self.car_handle) {
+        if let Some(body) = self.rigid_body_set.get_mut(self.vehicle.body_handle) {
             body.set_translation(Vector::new(0.0, 1.0, 0.0), true);
             body.set_linvel(Vector::new(0.0, 0.0, 0.0), true);
             body.set_angvel(Vector::new(0.0, 0.0, 0.0), true);
             body.wake_up(true);
         }
-        self.player_pos = Vector::new(2.0, 1.0, 0.0);
-        self.player_yaw = 0.0;
-        self.player_vel_y = 0.0;
-        self.in_car = false;
-        for wheel in self.vehicle.wheels_mut() {
+        self.player.pos = Vector::new(2.0, 1.0, 0.0);
+        self.player.yaw = 0.0;
+        self.player.vel_y = 0.0;
+        self.player.in_car = false;
+        for wheel in self.vehicle.controller.wheels_mut() {
             wheel.engine_force = 0.0;
             wheel.brake = 0.0;
             wheel.steering = 0.0;
@@ -628,78 +676,92 @@ impl SimEngine {
     }
 
     pub fn toggle_pause(&mut self) {
-        if self.allow_pause {
-            self.paused = !self.paused;
+        if self.runtime.allow_pause {
+            self.runtime.paused = !self.runtime.paused;
         }
     }
 
     pub fn is_paused(&self) -> bool {
-        self.paused
+        self.runtime.paused
     }
 
     pub fn set_allow_pause(&mut self, allow: bool) {
-        self.allow_pause = allow;
+        self.runtime.allow_pause = allow;
         if !allow {
-            self.paused = false;
+            self.runtime.paused = false;
         }
     }
 
     pub fn set_input_buttons(&mut self, buttons: u32, camera_yaw: f32) {
-        let forward = if (buttons & BTN_FORWARD) != 0 { 1.0 } else { 0.0 };
+        let forward = if (buttons & BTN_FORWARD) != 0 {
+            1.0
+        } else {
+            0.0
+        };
         let back = if (buttons & BTN_BACK) != 0 { 1.0 } else { 0.0 };
         let left = if (buttons & BTN_LEFT) != 0 { 1.0 } else { 0.0 };
         let right = if (buttons & BTN_RIGHT) != 0 { 1.0 } else { 0.0 };
 
-        self.input_forward = (forward - back).clamp(-1.0, 1.0);
-        self.input_right = (right - left).clamp(-1.0, 1.0);
-        self.input_handbrake = if (buttons & BTN_HANDBRAKE) != 0 { 1.0 } else { 0.0 };
-        self.input_run = if (buttons & BTN_RUN) != 0 { 1.0 } else { 0.0 };
-        self.input_camera_yaw = camera_yaw;
+        self.input.forward = (forward - back).clamp(-1.0, 1.0);
+        self.input.right = (right - left).clamp(-1.0, 1.0);
+        self.input.handbrake = if (buttons & BTN_HANDBRAKE) != 0 {
+            1.0
+        } else {
+            0.0
+        };
+        self.input.run = if (buttons & BTN_RUN) != 0 { 1.0 } else { 0.0 };
+        self.input.camera_yaw = camera_yaw;
     }
 
     pub fn jump(&mut self) {
-        if self.in_car {
+        if self.player.in_car {
             return;
         }
-        if self.player_vel_y.abs() > 0.001 {
+        if self.player.vel_y.abs() > 0.001 {
             return;
         }
-        if self.player_pos.y <= PLAYER_STAND_HEIGHT + 0.05 {
-            self.player_vel_y = PLAYER_JUMP_SPEED;
+        if self.player.pos.y <= PLAYER_STAND_HEIGHT + 0.05 {
+            self.player.vel_y = PLAYER_JUMP_SPEED;
             return;
         }
-        if let Some(block_ground) =
-            self.block_ground_height_at(self.player_pos.x, self.player_pos.z, self.player_pos.y, self.player_pos.y)
-        {
-            if (self.player_pos.y - block_ground).abs() <= 0.08 {
-                self.player_vel_y = PLAYER_JUMP_SPEED;
+        if let Some(block_ground) = self.block_ground_height_at(
+            self.player.pos.x,
+            self.player.pos.z,
+            self.player.pos.y,
+            self.player.pos.y,
+        ) {
+            if (self.player.pos.y - block_ground).abs() <= 0.08 {
+                self.player.vel_y = PLAYER_JUMP_SPEED;
                 return;
             }
         }
-        if let Some(car_ground) =
-            self.car_ground_height_at(self.player_pos.x, self.player_pos.z, self.player_pos.y, self.player_pos.y)
-        {
-            if (self.player_pos.y - car_ground).abs() <= 0.08 {
-                self.player_vel_y = PLAYER_JUMP_SPEED;
+        if let Some(car_ground) = self.car_ground_height_at(
+            self.player.pos.x,
+            self.player.pos.z,
+            self.player.pos.y,
+            self.player.pos.y,
+        ) {
+            if (self.player.pos.y - car_ground).abs() <= 0.08 {
+                self.player.vel_y = PLAYER_JUMP_SPEED;
             }
         }
     }
 
     pub fn toggle_enter(&mut self) {
-        if self.in_car {
-            let car_pos = self.rigid_body_set[self.car_handle].translation();
-            self.player_pos = Vector::new(car_pos.x + 2.0, 1.0, car_pos.z);
-            self.in_car = false;
+        if self.player.in_car {
+            let car_pos = self.rigid_body_set[self.vehicle.body_handle].translation();
+            self.player.pos = Vector::new(car_pos.x + 2.0, 1.0, car_pos.z);
+            self.player.in_car = false;
             return;
         }
 
-        let car_pos = self.rigid_body_set[self.car_handle].translation();
-        let dx = self.player_pos.x - car_pos.x;
-        let dz = self.player_pos.z - car_pos.z;
+        let car_pos = self.rigid_body_set[self.vehicle.body_handle].translation();
+        let dx = self.player.pos.x - car_pos.x;
+        let dz = self.player.pos.z - car_pos.z;
         let enter_radius = 4.0;
         if dx * dx + dz * dz <= enter_radius * enter_radius {
-            self.in_car = true;
-            self.player_pos = Vector::new(car_pos.x, car_pos.y, car_pos.z);
+            self.player.in_car = true;
+            self.player.pos = Vector::new(car_pos.x, car_pos.y, car_pos.z);
         }
     }
 
@@ -708,20 +770,20 @@ impl SimEngine {
             let min_y = block.1 - block.4;
             let top = block.1 + block.4;
             let max_y = top + PLAYER_STAND_HEIGHT - 0.05;
-            if self.player_pos.y < min_y || self.player_pos.y > max_y {
+            if self.player.pos.y < min_y || self.player.pos.y > max_y {
                 continue;
             }
-            let dx = self.player_pos.x - block.0;
-            let dz = self.player_pos.z - block.2;
+            let dx = self.player.pos.x - block.0;
+            let dz = self.player.pos.z - block.2;
             let overlap_x = block.3 + PLAYER_FOOT_RADIUS - dx.abs();
             let overlap_z = block.5 + PLAYER_FOOT_RADIUS - dz.abs();
             if overlap_x <= 0.0 || overlap_z <= 0.0 {
                 continue;
             }
             if overlap_x < overlap_z {
-                self.player_pos.x += if dx >= 0.0 { overlap_x } else { -overlap_x };
+                self.player.pos.x += if dx >= 0.0 { overlap_x } else { -overlap_x };
             } else {
-                self.player_pos.z += if dz >= 0.0 { overlap_z } else { -overlap_z };
+                self.player.pos.z += if dz >= 0.0 { overlap_z } else { -overlap_z };
             }
         }
     }
@@ -746,7 +808,7 @@ impl SimEngine {
             }
             if prev_center_y < stand - PLAYER_STEP_DOWN
                 || current_center_y > stand + 0.05
-                || self.player_vel_y > 0.0
+                || self.player.vel_y > 0.0
             {
                 continue;
             }
@@ -762,7 +824,7 @@ impl SimEngine {
         prev_center_y: f32,
         current_center_y: f32,
     ) -> Option<f32> {
-        let body = &self.rigid_body_set[self.car_handle];
+        let body = &self.rigid_body_set[self.vehicle.body_handle];
         let rot = body.rotation();
         let up = rot * Vector::new(0.0, 1.0, 0.0);
         if up.y <= 0.35 {
@@ -778,14 +840,18 @@ impl SimEngine {
         let denom = up.y.max(0.0001);
         let top_y = top_center.y - (up.x * (x - top_center.x) + up.z * (z - top_center.z)) / denom;
         let stand = top_y + PLAYER_STAND_HEIGHT;
-        if prev_center_y < stand - PLAYER_STEP_DOWN || current_center_y > stand + 0.05 || self.player_vel_y > 0.0 {
+        if prev_center_y < stand - PLAYER_STEP_DOWN
+            || current_center_y > stand + 0.05
+            || self.player.vel_y > 0.0
+        {
             return None;
         }
 
         let delta = Vector::new(x - center_v.x, top_y - center_v.y, z - center_v.z);
         let local_x = delta.dot(right);
         let local_z = delta.dot(forward);
-        if local_x.abs() > CAR_HALF_WIDTH + PLAYER_FOOT_RADIUS || local_z.abs() > CAR_HALF_LENGTH + PLAYER_FOOT_RADIUS
+        if local_x.abs() > CAR_HALF_WIDTH + PLAYER_FOOT_RADIUS
+            || local_z.abs() > CAR_HALF_LENGTH + PLAYER_FOOT_RADIUS
         {
             return None;
         }
@@ -794,14 +860,14 @@ impl SimEngine {
     }
 
     fn update_pedestrians(&mut self, dt: f32) {
-        if self.ped_positions.is_empty() {
+        if self.crowd.ped_positions.is_empty() {
             return;
         }
 
         let world_half = WORLD_HALF;
-        let car_body = &self.rigid_body_set[self.car_handle];
+        let car_body = &self.rigid_body_set[self.vehicle.body_handle];
         let car_pos = car_body.translation();
-        let player_pos = self.player_pos;
+        let player_pos = self.player.pos;
         let mut player_push = Vector::new(0.0, 0.0, 0.0);
         let ped_radius = 0.4;
         let player_radius = PLAYER_FOOT_RADIUS;
@@ -809,8 +875,8 @@ impl SimEngine {
         let car_speed = car_body.linvel().length();
         let car_push_scale = 1.2 + (car_speed * 0.1).min(2.0);
 
-        for (i, pos) in self.ped_positions.iter_mut().enumerate() {
-            let angle = self.sim_time * 0.35 + i as f32 * 0.37;
+        for (i, pos) in self.crowd.ped_positions.iter_mut().enumerate() {
+            let angle = self.runtime.sim_time * 0.35 + i as f32 * 0.37;
             let mut dir = Vector::new(angle.cos(), 0.0, angle.sin());
 
             let dx = pos.x - car_pos.x;
@@ -821,7 +887,7 @@ impl SimEngine {
                 dir += avoid.normalize_or_zero() * 2.5;
             }
 
-            if !self.in_car {
+            if !self.player.in_car {
                 let px = pos.x - player_pos.x;
                 let pz = pos.z - player_pos.z;
                 let pdist_sq = px * px + pz * pz;
@@ -862,7 +928,7 @@ impl SimEngine {
             }
         }
 
-        if !self.in_car {
+        if !self.player.in_car {
             let dx = player_pos.x - car_pos.x;
             let dz = player_pos.z - car_pos.z;
             let roof_center_y = car_pos.y + CAR_HALF_HEIGHT + PLAYER_STAND_HEIGHT;
@@ -896,7 +962,7 @@ impl SimEngine {
                 }
             }
 
-            self.player_pos += player_push;
+            self.player.pos += player_push;
         }
     }
 
