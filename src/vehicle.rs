@@ -87,12 +87,12 @@ pub(crate) fn create_vehicle(
 impl SimEngine {
     pub(crate) fn step_vehicle(&mut self, dt: f32) {
         let throttle = if self.player.in_car {
-            self.input.forward
+            -self.input.forward
         } else {
             0.0
         };
         let steer = if self.player.in_car {
-            -self.input.right
+            self.input.right
         } else {
             0.0
         };
@@ -110,10 +110,16 @@ impl SimEngine {
         };
         let steer_angle = steer * VEHICLE_MAX_STEER;
 
+        let rear_steer = if handbrake > 0.5 { -steer_angle } else { 0.0 };
+
         for (index, wheel) in self.vehicle.controller.wheels_mut().iter_mut().enumerate() {
             wheel.engine_force = engine_force;
             wheel.brake = brake_force;
-            wheel.steering = if index < 2 { steer_angle } else { 0.0 };
+            wheel.steering = if index < 2 {
+                steer_angle
+            } else {
+                rear_steer
+            };
         }
 
         let queries = self.broad_phase.as_query_pipeline_mut(
