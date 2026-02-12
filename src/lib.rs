@@ -317,7 +317,7 @@ impl SimEngine {
             .translation(Vector::new(0.0, 1.0, 0.0))
             .additional_mass(1200.0)
             .linear_damping(0.4)
-            .angular_damping(1.2)
+            .angular_damping(2.8)
             .build();
         let car_collider =
             ColliderBuilder::cuboid(CAR_HALF_WIDTH, CAR_HALF_HEIGHT, CAR_HALF_LENGTH)
@@ -342,13 +342,13 @@ impl SimEngine {
         let wheel_radius = 0.38;
         let suspension_rest = 0.45;
         let tuning = WheelTuning {
-            suspension_stiffness: 12.0,
-            suspension_compression: 3.0,
-            suspension_damping: 2.0,
-            max_suspension_travel: 0.35,
+            suspension_stiffness: 20.0,
+            suspension_compression: 4.5,
+            suspension_damping: 4.5,
+            max_suspension_travel: 0.24,
             side_friction_stiffness: 1.2,
-            friction_slip: 8.0,
-            max_suspension_force: 12000.0,
+            friction_slip: 9.0,
+            max_suspension_force: 18000.0,
         };
         let half_width = 0.9;
         let half_length = 1.3;
