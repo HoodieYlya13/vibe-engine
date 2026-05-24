@@ -2,9 +2,11 @@ use rapier3d::prelude::*;
 
 use crate::constants::{
     BLOCKS, CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, PLAYER_FOOT_RADIUS,
-    PLAYER_STAND_HEIGHT, WORLD_HALF,
+    PLAYER_STAND_HEIGHT, RAMPS, WORLD_HALF,
 };
 use crate::state::SimEngine;
+
+const PED_CENTER_HEIGHT: f32 = 0.8;
 
 impl SimEngine {
     pub(crate) fn update_pedestrians(&mut self, dt: f32) {
@@ -60,6 +62,8 @@ impl SimEngine {
             let speed = 0.8 + (i % 7) as f32 * 0.1;
             *pos += dir * speed * dt;
             Self::resolve_agent_block_collision(pos, ped_radius);
+            let ramp_ground = Self::resolve_agent_ramp_collision(pos, ped_radius);
+            pos.y = PED_CENTER_HEIGHT + ramp_ground;
 
             let limit = world_half - ped_radius;
             pos.x = pos.x.clamp(-limit, limit);
@@ -126,5 +130,40 @@ impl SimEngine {
                 pos.z += if dz >= 0.0 { overlap_z } else { -overlap_z };
             }
         }
+    }
+
+    fn resolve_agent_ramp_collision(pos: &mut Vector, radius: f32) -> f32 {
+        let mut ground = 0.0;
+
+        for ramp in RAMPS {
+            let x0 = ramp.0;
+            let x1 = ramp.1;
+            let z0 = ramp.2 - ramp.3;
+            let z1 = ramp.2 + ramp.3;
+            let h = ramp.4;
+
+            // Side walls: keep agents from clipping through ramp sides.
+            if pos.x >= x0 && pos.x <= x1 {
+                if pos.z > z1 && pos.z < z1 + radius {
+                    pos.z = z1 + radius;
+                } else if pos.z < z0 && pos.z > z0 - radius {
+                    pos.z = z0 - radius;
+                }
+            }
+
+            // Back wall: prevent clipping through the high-end face.
+            if pos.z >= z0 - radius && pos.z <= z1 + radius && pos.x > x1 && pos.x < x1 + radius {
+                pos.x = x1 + radius;
+            }
+
+            // Stand on ramp surface when inside top footprint.
+            if pos.x >= x0 && pos.x <= x1 && pos.z >= z0 && pos.z <= z1 {
+                let run = (x1 - x0).max(0.001);
+                let t = ((pos.x - x0) / run).clamp(0.0, 1.0);
+                ground = ground.max(t * h);
+            }
+        }
+
+        ground
     }
 }
