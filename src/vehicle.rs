@@ -2,8 +2,9 @@ use rapier3d::control::{DynamicRayCastVehicleController, WheelTuning};
 use rapier3d::prelude::*;
 
 use crate::constants::{
-    CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, VEHICLE_MAX_BRAKE_FORCE,
-    VEHICLE_MAX_ENGINE_FORCE, VEHICLE_MAX_STEER,
+    CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, VEHICLE_DIRECTION_SWITCH_SPEED,
+    VEHICLE_ENGINE_BRAKE_IMPULSE, VEHICLE_FOOTBRAKE_IMPULSE, VEHICLE_HANDBRAKE_IMPULSE,
+    VEHICLE_MAX_ENGINE_FORCE, VEHICLE_MAX_REVERSE_FORCE, VEHICLE_MAX_STEER,
 };
 use crate::state::{SimEngine, VehicleState};
 
@@ -43,7 +44,10 @@ pub(crate) fn create_vehicle(
     let half_length = CAR_HALF_LENGTH * 0.8;
     let connection_height = -0.5;
     let direction = Vector::new(0.0, -1.0, 0.0);
-    let axle = Vector::new(1.0, 0.0, 0.0);
+    // Rapier derives the wheel's forward as contact_normal × axle; with -X the
+    // forward comes out +Z, matching index_forward_axis so positive engine
+    // force drives the chassis toward its steering wheels.
+    let axle = Vector::new(-1.0, 0.0, 0.0);
 
     controller.add_wheel(
         Vector::new(-half_width, connection_height, half_length),
@@ -86,40 +90,66 @@ pub(crate) fn create_vehicle(
 
 impl SimEngine {
     pub(crate) fn step_vehicle(&mut self, dt: f32) {
-        let throttle = if self.player.in_car {
-            -self.input.forward
+        let (throttle, steer, handbrake) = if self.player.in_car {
+            (
+                self.input.forward,
+                self.input.right,
+                self.input.handbrake > 0.5,
+            )
         } else {
-            0.0
-        };
-        let steer = if self.player.in_car {
-            self.input.right
-        } else {
-            0.0
-        };
-        let handbrake = if self.player.in_car {
-            self.input.handbrake
-        } else {
-            0.0
+            (0.0, 0.0, false)
         };
 
-        let engine_force = throttle * VEHICLE_MAX_ENGINE_FORCE;
-        let brake_force = if handbrake > 0.5 {
-            VEHICLE_MAX_BRAKE_FORCE
-        } else {
-            0.0
+        if throttle.abs() > 0.01 || steer.abs() > 0.01 || handbrake {
+            if let Some(body) = self.rigid_body_set.get_mut(self.vehicle.body_handle) {
+                body.wake_up(true);
+            }
+        }
+
+        if self.rigid_body_set[self.vehicle.body_handle].is_sleeping() {
+            for wheel in self.vehicle.controller.wheels_mut() {
+                wheel.engine_force = 0.0;
+                wheel.brake = 0.0;
+            }
+            return;
+        }
+
+        let forward_speed = {
+            let body = &self.rigid_body_set[self.vehicle.body_handle];
+            let forward = body.rotation() * Vector::new(0.0, 0.0, 1.0);
+            forward.dot(body.linvel())
         };
+
+        let mut engine_force = 0.0;
+        let mut brake = 0.0;
+        if throttle > 0.01 {
+            if forward_speed < -VEHICLE_DIRECTION_SWITCH_SPEED {
+                brake = VEHICLE_FOOTBRAKE_IMPULSE * throttle;
+            } else {
+                engine_force = VEHICLE_MAX_ENGINE_FORCE * throttle;
+            }
+        } else if throttle < -0.01 {
+            if forward_speed > VEHICLE_DIRECTION_SWITCH_SPEED {
+                brake = VEHICLE_FOOTBRAKE_IMPULSE * -throttle;
+            } else {
+                engine_force = VEHICLE_MAX_REVERSE_FORCE * throttle;
+            }
+        } else {
+            brake = VEHICLE_ENGINE_BRAKE_IMPULSE;
+        }
+
         let steer_angle = steer * VEHICLE_MAX_STEER;
 
-        let rear_steer = if handbrake > 0.5 { -steer_angle } else { 0.0 };
-
         for (index, wheel) in self.vehicle.controller.wheels_mut().iter_mut().enumerate() {
-            wheel.engine_force = engine_force;
-            wheel.brake = brake_force;
-            wheel.steering = if index < 2 {
-                steer_angle
+            let rear = index >= 2;
+            if handbrake && rear {
+                wheel.engine_force = 0.0;
+                wheel.brake = VEHICLE_HANDBRAKE_IMPULSE;
             } else {
-                rear_steer
-            };
+                wheel.engine_force = engine_force;
+                wheel.brake = brake;
+            }
+            wheel.steering = if rear { 0.0 } else { steer_angle };
         }
 
         let queries = self.broad_phase.as_query_pipeline_mut(

@@ -16,7 +16,11 @@ pub(crate) const HUD_HINT_ENTER: u32 = 1;
 pub(crate) const HUD_HINT_EXIT: u32 = 2;
 
 pub(crate) const VEHICLE_MAX_ENGINE_FORCE: f32 = 5200.0;
-pub(crate) const VEHICLE_MAX_BRAKE_FORCE: f32 = 45.0;
+pub(crate) const VEHICLE_MAX_REVERSE_FORCE: f32 = 2600.0;
+pub(crate) const VEHICLE_FOOTBRAKE_IMPULSE: f32 = 60.0;
+pub(crate) const VEHICLE_ENGINE_BRAKE_IMPULSE: f32 = 8.0;
+pub(crate) const VEHICLE_HANDBRAKE_IMPULSE: f32 = 150.0;
+pub(crate) const VEHICLE_DIRECTION_SWITCH_SPEED: f32 = 0.6;
 pub(crate) const VEHICLE_MAX_STEER: f32 = 0.6;
 
 pub(crate) const WORLD_HALF: f32 = 60.0;

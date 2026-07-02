@@ -15,6 +15,14 @@ impl SimEngine {
     }
 
     pub fn new_with_peds(count: u32) -> SimEngine {
+        Self::new_internal(count, true)
+    }
+
+    pub fn new_open_field(count: u32) -> SimEngine {
+        Self::new_internal(count, false)
+    }
+
+    fn new_internal(count: u32, with_obstacles: bool) -> SimEngine {
         console_error_panic_hook::set_once();
 
         let mut rigid_body_set = RigidBodySet::new();
@@ -50,34 +58,8 @@ impl SimEngine {
         collider_set.insert_with_parent(wall_z_pos, wall_handle, &mut rigid_body_set);
         collider_set.insert_with_parent(wall_z_neg, wall_handle, &mut rigid_body_set);
 
-        let block_body = RigidBodyBuilder::fixed().build();
-        let block_handle = rigid_body_set.insert(block_body);
-        for block in BLOCKS {
-            let collider = ColliderBuilder::cuboid(block.3, block.4, block.5)
-                .translation(Vector::new(block.0, block.1, block.2))
-                .build();
-            collider_set.insert_with_parent(collider, block_handle, &mut rigid_body_set);
-        }
-
-        let ramp_body = RigidBodyBuilder::fixed().build();
-        let ramp_handle = rigid_body_set.insert(ramp_body);
-        for ramp in RAMPS {
-            let z0 = ramp.0;
-            let z1 = ramp.1;
-            let x0 = ramp.2 - ramp.3;
-            let x1 = ramp.2 + ramp.3;
-            let h = ramp.4;
-            let points = [
-                Vector::new(x0, 0.0, z0),
-                Vector::new(x1, 0.0, z0),
-                Vector::new(x0, 0.0, z1),
-                Vector::new(x1, 0.0, z1),
-                Vector::new(x0, h, z1),
-                Vector::new(x1, h, z1),
-            ];
-            if let Some(collider) = ColliderBuilder::convex_hull(&points) {
-                collider_set.insert_with_parent(collider.build(), ramp_handle, &mut rigid_body_set);
-            }
+        if with_obstacles {
+            Self::insert_obstacles(&mut rigid_body_set, &mut collider_set);
         }
 
         let vehicle = create_vehicle(&mut rigid_body_set, &mut collider_set);
@@ -125,6 +107,38 @@ impl SimEngine {
                 sim_time: 0.0,
             },
             crowd: CrowdState { ped_positions },
+        }
+    }
+
+    fn insert_obstacles(rigid_body_set: &mut RigidBodySet, collider_set: &mut ColliderSet) {
+        let block_body = RigidBodyBuilder::fixed().build();
+        let block_handle = rigid_body_set.insert(block_body);
+        for block in BLOCKS {
+            let collider = ColliderBuilder::cuboid(block.3, block.4, block.5)
+                .translation(Vector::new(block.0, block.1, block.2))
+                .build();
+            collider_set.insert_with_parent(collider, block_handle, rigid_body_set);
+        }
+
+        let ramp_body = RigidBodyBuilder::fixed().build();
+        let ramp_handle = rigid_body_set.insert(ramp_body);
+        for ramp in RAMPS {
+            let z0 = ramp.0;
+            let z1 = ramp.1;
+            let x0 = ramp.2 - ramp.3;
+            let x1 = ramp.2 + ramp.3;
+            let h = ramp.4;
+            let points = [
+                Vector::new(x0, 0.0, z0),
+                Vector::new(x1, 0.0, z0),
+                Vector::new(x0, 0.0, z1),
+                Vector::new(x1, 0.0, z1),
+                Vector::new(x0, h, z1),
+                Vector::new(x1, h, z1),
+            ];
+            if let Some(collider) = ColliderBuilder::convex_hull(&points) {
+                collider_set.insert_with_parent(collider.build(), ramp_handle, rigid_body_set);
+            }
         }
     }
 

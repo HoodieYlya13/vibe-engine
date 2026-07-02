@@ -37,6 +37,10 @@ impl SimEngine {
         self.runtime.paused
     }
 
+    pub fn car_sleeping(&self) -> bool {
+        self.rigid_body_set[self.vehicle.body_handle].is_sleeping()
+    }
+
     pub fn set_allow_pause(&mut self, allow: bool) {
         self.runtime.allow_pause = allow;
         if !allow {
