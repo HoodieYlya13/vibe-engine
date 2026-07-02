@@ -1,4 +1,7 @@
 use sim::SimEngine;
+use sim::constants::{
+    BTN_BACK, BTN_FORWARD, BTN_HANDBRAKE, BTN_LEFT, BTN_RIGHT, PLAYER_STATE_OFFSET,
+};
 
 const HZ: usize = 60;
 
@@ -48,7 +51,7 @@ impl Harness {
     fn enter_car(&mut self) {
         self.engine.toggle_enter();
         self.engine.write_state(&mut self.buf);
-        let in_car = self.buf[sim::player_state_offset() as usize + 4] > 0.5;
+        let in_car = self.buf[PLAYER_STATE_OFFSET as usize + 4] > 0.5;
         assert!(in_car, "player failed to enter the car");
     }
 }
@@ -66,7 +69,7 @@ fn w_drives_forward_even_after_sleep() {
     h.enter_car();
     let (_, y0, z0) = h.car_pos();
 
-    h.hold(sim::btn_forward(), 2.0);
+    h.hold(BTN_FORWARD, 2.0);
 
     let (x, y, z) = h.car_pos();
     assert!(
@@ -74,7 +77,10 @@ fn w_drives_forward_even_after_sleep() {
         "W must drive the car forward (+Z): moved {} m",
         z - z0
     );
-    assert!(x.abs() < 2.0, "car drifted sideways with no steering: x = {x}");
+    assert!(
+        x.abs() < 2.0,
+        "car drifted sideways with no steering: x = {x}"
+    );
     assert!(
         (y - y0).abs() < 1.5,
         "car jumped on wake-up (loaded-spring bug): y {y0} -> {y}"
@@ -88,19 +94,19 @@ fn s_brakes_before_reversing() {
     h.step_seconds(1.0);
     h.enter_car();
 
-    h.hold(sim::btn_forward(), 1.5);
+    h.hold(BTN_FORWARD, 1.5);
     let (_, _, z_fast) = h.car_pos();
 
-    h.hold(sim::btn_back(), 0.5);
+    h.hold(BTN_BACK, 0.5);
     let (_, _, z_braking) = h.car_pos();
     assert!(
         z_braking > z_fast - 1.0,
         "car snapped backwards under braking: {z_fast} -> {z_braking}"
     );
 
-    h.hold(sim::btn_back(), 3.5);
+    h.hold(BTN_BACK, 3.5);
     let (_, _, z_a) = h.car_pos();
-    h.hold(sim::btn_back(), 1.0);
+    h.hold(BTN_BACK, 1.0);
     let (_, _, z_b) = h.car_pos();
     assert!(
         z_b < z_a - 0.5,
@@ -115,10 +121,10 @@ fn handbrake_stops_the_car() {
     h.step_seconds(1.0);
     h.enter_car();
 
-    h.hold(sim::btn_forward(), 2.0);
-    h.hold(sim::btn_handbrake(), 3.0);
+    h.hold(BTN_FORWARD, 2.0);
+    h.hold(BTN_HANDBRAKE, 3.0);
     let (_, _, z_a) = h.car_pos();
-    h.hold(sim::btn_handbrake(), 1.0);
+    h.hold(BTN_HANDBRAKE, 1.0);
     let (_, _, z_b) = h.car_pos();
     assert!(
         (z_b - z_a).abs() < 0.5,
@@ -134,8 +140,8 @@ fn steering_turns_the_car() {
     h.step_seconds(1.0);
     h.enter_car();
 
-    h.hold(sim::btn_forward(), 1.0);
-    h.hold(sim::btn_forward() | sim::btn_right(), 2.0);
+    h.hold(BTN_FORWARD, 1.0);
+    h.hold(BTN_FORWARD | BTN_RIGHT, 2.0);
     let (x, _, _) = h.car_pos();
     assert!(x > 1.0, "D while driving should curve toward +X: x = {x}");
     h.assert_sane();
@@ -147,10 +153,10 @@ fn sim_is_deterministic() {
         let mut h = Harness::new();
         h.step_seconds(1.0);
         h.enter_car();
-        h.hold(sim::btn_forward(), 2.0);
-        h.hold(sim::btn_forward() | sim::btn_left(), 1.5);
-        h.hold(sim::btn_handbrake() | sim::btn_left(), 1.0);
-        h.hold(sim::btn_back(), 2.0);
+        h.hold(BTN_FORWARD, 2.0);
+        h.hold(BTN_FORWARD | BTN_LEFT, 1.5);
+        h.hold(BTN_HANDBRAKE | BTN_LEFT, 1.0);
+        h.hold(BTN_BACK, 2.0);
         h.engine.write_state(&mut h.buf);
         h.buf.clone()
     };
@@ -171,8 +177,7 @@ fn parked_car_stays_parked() {
     let (x0, y0, z0) = h.car_pos();
     h.step_seconds(30.0);
     let (x1, y1, z1) = h.car_pos();
-    let drift =
-        ((x1 - x0).powi(2) + (y1 - y0).powi(2) + (z1 - z0).powi(2)).sqrt();
+    let drift = ((x1 - x0).powi(2) + (y1 - y0).powi(2) + (z1 - z0).powi(2)).sqrt();
     assert!(drift < 0.05, "parked car drifted {drift} m over 30s");
     assert!(h.engine.car_sleeping(), "parked car should be asleep");
 }

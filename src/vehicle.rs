@@ -100,10 +100,10 @@ impl SimEngine {
             (0.0, 0.0, false)
         };
 
-        if throttle.abs() > 0.01 || steer.abs() > 0.01 || handbrake {
-            if let Some(body) = self.rigid_body_set.get_mut(self.vehicle.body_handle) {
-                body.wake_up(true);
-            }
+        if (throttle.abs() > 0.01 || steer.abs() > 0.01 || handbrake)
+            && let Some(body) = self.rigid_body_set.get_mut(self.vehicle.body_handle)
+        {
+            body.wake_up(true);
         }
 
         if self.rigid_body_set[self.vehicle.body_handle].is_sleeping() {
