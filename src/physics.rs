@@ -2,7 +2,8 @@ use rapier3d::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::constants::{
-    BLOCKS, DEFAULT_PED_COUNT, PLAYER_STAND_HEIGHT, RAMPS, WALL_HEIGHT, WALL_THICKNESS, WORLD_HALF,
+    BLOCKS, DEFAULT_PED_COUNT, PLAYER_CAPSULE_HALF_HEIGHT, PLAYER_FOOT_RADIUS, PLAYER_STAND_HEIGHT,
+    RAMPS, WALL_HEIGHT, WALL_THICKNESS, WORLD_HALF,
 };
 use crate::state::{CrowdState, InputState, PlayerState, RuntimeState, SimEngine};
 use crate::vehicle::create_vehicle;
@@ -72,6 +73,24 @@ impl SimEngine {
             }
         }
 
+        // The player: a kinematic body + sensor capsule moved by the character
+        // controller. Sensor, so the solver never generates contacts against it
+        // (the car should not crash into an immovable pole).
+        let player_spawn = Vector::new(2.0, PLAYER_STAND_HEIGHT, 0.0);
+        let player_body = RigidBodyBuilder::kinematic_position_based()
+            .translation(player_spawn)
+            .build();
+        let player_body_handle = rigid_body_set.insert(player_body);
+        let player_collider =
+            ColliderBuilder::capsule_y(PLAYER_CAPSULE_HALF_HEIGHT, PLAYER_FOOT_RADIUS)
+                .sensor(true)
+                .build();
+        let player_collider_handle = collider_set.insert_with_parent(
+            player_collider,
+            player_body_handle,
+            &mut rigid_body_set,
+        );
+
         let ped_count = count as usize;
         let mut ped_positions = Vec::with_capacity(ped_count);
         let cols = (ped_count as f32).sqrt().ceil() as usize;
@@ -104,10 +123,13 @@ impl SimEngine {
                 camera_yaw: 0.0,
             },
             player: PlayerState {
-                pos: Vector::new(2.0, PLAYER_STAND_HEIGHT, 0.0),
+                pos: player_spawn,
                 yaw: 0.0,
                 vel_y: 0.0,
                 in_car: false,
+                grounded: true,
+                body_handle: player_body_handle,
+                collider_handle: player_collider_handle,
             },
             runtime: RuntimeState {
                 paused: false,

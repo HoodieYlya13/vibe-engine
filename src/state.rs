@@ -17,6 +17,11 @@ pub(crate) struct PlayerState {
     pub(crate) yaw: f32,
     pub(crate) vel_y: f32,
     pub(crate) in_car: bool,
+    pub(crate) grounded: bool,
+    /// Kinematic body carrying the capsule collider; positions are driven by
+    /// the character controller, never by the solver.
+    pub(crate) body_handle: RigidBodyHandle,
+    pub(crate) collider_handle: ColliderHandle,
 }
 
 pub(crate) struct VehicleState {

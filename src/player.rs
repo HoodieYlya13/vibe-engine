@@ -1,11 +1,27 @@
+use rapier3d::control::{CharacterAutostep, CharacterLength, KinematicCharacterController};
 use rapier3d::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::constants::{
-    BLOCKS, CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, PLAYER_FOOT_RADIUS,
-    PLAYER_JUMP_SPEED, PLAYER_RADIUS, PLAYER_STAND_HEIGHT, PLAYER_STEP_DOWN, RAMPS, WORLD_HALF,
+    CAR_HALF_WIDTH, PLAYER_JUMP_SPEED, PLAYER_RUN_SPEED, PLAYER_STAND_HEIGHT, PLAYER_STEP_DOWN,
+    PLAYER_WALK_SPEED,
 };
 use crate::state::SimEngine;
+
+/// Controller configuration for every on-foot move. The player collides with
+/// the same colliders the car drives on — blocks, ramp, walls, car chassis —
+/// so world geometry exists exactly once (was defect #5).
+fn character_controller() -> KinematicCharacterController {
+    KinematicCharacterController {
+        autostep: Some(CharacterAutostep {
+            max_height: CharacterLength::Absolute(PLAYER_STEP_DOWN),
+            min_width: CharacterLength::Absolute(0.1),
+            include_dynamic_bodies: false,
+        }),
+        snap_to_ground: Some(CharacterLength::Absolute(PLAYER_STEP_DOWN)),
+        ..Default::default()
+    }
+}
 
 impl SimEngine {
     pub(crate) fn update_player(&mut self, dt: f32) {
@@ -13,10 +29,15 @@ impl SimEngine {
             let car_pos = self.rigid_body_set[self.vehicle.body_handle].translation();
             self.player.pos = Vector::new(car_pos.x, car_pos.y + 0.9, car_pos.z);
             self.player.vel_y = 0.0;
+            self.sync_player_body();
             return;
         }
 
-        let speed = if self.input.run > 0.5 { 7.0 } else { 4.0 };
+        let speed = if self.input.run > 0.5 {
+            PLAYER_RUN_SPEED
+        } else {
+            PLAYER_WALK_SPEED
+        };
         let yaw = self.input.camera_yaw;
         let forward = Vector::new(yaw.sin(), 0.0, yaw.cos());
         let right = Vector::new(forward.z, 0.0, -forward.x);
@@ -25,275 +46,70 @@ impl SimEngine {
         if len > 1.0 {
             move_dir /= len;
         }
-
         if len > 0.001 {
             self.player.yaw = move_dir.x.atan2(move_dir.z);
         }
 
-        self.player.pos += move_dir * speed * dt;
-        self.resolve_block_horizontal_collisions();
-        self.resolve_ramp_horizontal_collisions();
+        self.player.vel_y -= 9.81 * dt;
+        let desired = move_dir * speed * dt + Vector::new(0.0, self.player.vel_y * dt, 0.0);
 
-        let prev_y = self.player.pos.y;
-        self.player.vel_y += -9.81 * dt;
-        self.player.pos.y += self.player.vel_y * dt;
+        let movement = {
+            let filter = QueryFilter::new()
+                .exclude_rigid_body(self.player.body_handle)
+                .exclude_sensors();
+            let queries = self.broad_phase.as_query_pipeline(
+                self.narrow_phase.query_dispatcher(),
+                &self.rigid_body_set,
+                &self.collider_set,
+                filter,
+            );
+            let shape = self.collider_set[self.player.collider_handle].shape();
+            character_controller().move_shape(
+                dt,
+                &queries,
+                shape,
+                &Pose::from_translation(self.player.pos),
+                desired,
+                |_| {},
+            )
+        };
 
-        let mut grounded_at = PLAYER_STAND_HEIGHT;
-        if let Some(block_ground) = self.block_ground_height_at(
-            self.player.pos.x,
-            self.player.pos.z,
-            prev_y,
-            self.player.pos.y,
-        ) && block_ground > grounded_at
-        {
-            grounded_at = block_ground;
-        }
-        if let Some(car_ground) = self.car_ground_height_at(
-            self.player.pos.x,
-            self.player.pos.z,
-            prev_y,
-            self.player.pos.y,
-        ) && car_ground > grounded_at
-        {
-            grounded_at = car_ground;
-        }
-        if let Some(ramp_ground) = self.ramp_ground_height_at(
-            self.player.pos.x,
-            self.player.pos.z,
-            prev_y,
-            self.player.pos.y,
-        ) && ramp_ground > grounded_at
-        {
-            grounded_at = ramp_ground;
-        }
-
-        if self.player.pos.y <= grounded_at {
-            self.player.pos.y = grounded_at;
+        self.player.pos += movement.translation;
+        self.player.grounded = movement.grounded;
+        if movement.grounded {
             self.player.vel_y = 0.0;
         }
-
-        let max_bound = WORLD_HALF - PLAYER_RADIUS;
-        self.player.pos.x = self.player.pos.x.clamp(-max_bound, max_bound);
-        self.player.pos.z = self.player.pos.z.clamp(-max_bound, max_bound);
+        self.sync_player_body();
     }
 
-    fn resolve_block_horizontal_collisions(&mut self) {
-        for block in BLOCKS {
-            let min_y = block.1 - block.4;
-            let top = block.1 + block.4;
-            let max_y = top + PLAYER_STAND_HEIGHT - 0.05;
-            if self.player.pos.y < min_y || self.player.pos.y > max_y {
-                continue;
-            }
-
-            let dx = self.player.pos.x - block.0;
-            let dz = self.player.pos.z - block.2;
-            let overlap_x = block.3 + PLAYER_FOOT_RADIUS - dx.abs();
-            let overlap_z = block.5 + PLAYER_FOOT_RADIUS - dz.abs();
-            if overlap_x <= 0.0 || overlap_z <= 0.0 {
-                continue;
-            }
-
-            if overlap_x < overlap_z {
-                self.player.pos.x += if dx >= 0.0 { overlap_x } else { -overlap_x };
-            } else {
-                self.player.pos.z += if dz >= 0.0 { overlap_z } else { -overlap_z };
-            }
+    fn sync_player_body(&mut self) {
+        let pos = self.player.pos;
+        if let Some(body) = self.rigid_body_set.get_mut(self.player.body_handle) {
+            body.set_next_kinematic_translation(pos);
         }
     }
 
-    fn resolve_ramp_horizontal_collisions(&mut self) {
-        let radius = PLAYER_FOOT_RADIUS;
-        for ramp in RAMPS {
-            let x0 = ramp.0;
-            let x1 = ramp.1;
-            let z0 = ramp.2 - ramp.3;
-            let z1 = ramp.2 + ramp.3;
-            let h = ramp.4;
-
-            let run = (x1 - x0).max(0.001);
-            let t = ((self.player.pos.x - x0) / run).clamp(0.0, 1.0);
-            let stand_at_x = t * h + PLAYER_STAND_HEIGHT;
-            if self.player.pos.y > stand_at_x + 0.2 {
-                continue;
-            }
-
-            // Ramp side walls.
-            if self.player.pos.x >= x0 - radius && self.player.pos.x <= x1 + radius {
-                if self.player.pos.z > z1 && self.player.pos.z < z1 + radius {
-                    self.player.pos.z = z1 + radius;
-                } else if self.player.pos.z < z0 && self.player.pos.z > z0 - radius {
-                    self.player.pos.z = z0 - radius;
-                }
-            }
-
-            // Ramp back wall at the high edge.
-            if self.player.pos.z >= z0 - radius
-                && self.player.pos.z <= z1 + radius
-                && self.player.pos.x > x1
-                && self.player.pos.x < x1 + radius
-                && self.player.pos.y <= h + PLAYER_STAND_HEIGHT + 0.2
-            {
-                self.player.pos.x = x1 + radius;
-            }
+    fn set_player_collider_enabled(&mut self, enabled: bool) {
+        if let Some(collider) = self.collider_set.get_mut(self.player.collider_handle) {
+            collider.set_enabled(enabled);
         }
-    }
-
-    fn block_ground_height_at(
-        &self,
-        x: f32,
-        z: f32,
-        prev_center_y: f32,
-        current_center_y: f32,
-    ) -> Option<f32> {
-        let mut best: Option<f32> = None;
-        for block in BLOCKS {
-            let top = block.1 + block.4;
-            let stand = top + PLAYER_STAND_HEIGHT;
-            if x < block.0 - block.3 - PLAYER_FOOT_RADIUS
-                || x > block.0 + block.3 + PLAYER_FOOT_RADIUS
-                || z < block.2 - block.5 - PLAYER_FOOT_RADIUS
-                || z > block.2 + block.5 + PLAYER_FOOT_RADIUS
-            {
-                continue;
-            }
-            if prev_center_y < stand - PLAYER_STEP_DOWN
-                || current_center_y > stand + 0.05
-                || self.player.vel_y > 0.0
-            {
-                continue;
-            }
-            best = Some(best.map_or(stand, |v| v.max(stand)));
-        }
-        best
-    }
-
-    fn car_ground_height_at(
-        &self,
-        x: f32,
-        z: f32,
-        prev_center_y: f32,
-        current_center_y: f32,
-    ) -> Option<f32> {
-        let body = &self.rigid_body_set[self.vehicle.body_handle];
-        let rot = body.rotation();
-        let up = rot * Vector::new(0.0, 1.0, 0.0);
-        if up.y <= 0.35 {
-            return None;
-        }
-
-        let center = body.translation();
-        let center_v = Vector::new(center.x, center.y, center.z);
-        let right = rot * Vector::new(1.0, 0.0, 0.0);
-        let forward = rot * Vector::new(0.0, 0.0, 1.0);
-
-        let top_center = center_v + up * CAR_HALF_HEIGHT;
-        let denom = up.y.max(0.0001);
-        let top_y = top_center.y - (up.x * (x - top_center.x) + up.z * (z - top_center.z)) / denom;
-        let stand = top_y + PLAYER_STAND_HEIGHT;
-        if prev_center_y < stand - PLAYER_STEP_DOWN
-            || current_center_y > stand + 0.05
-            || self.player.vel_y > 0.0
-        {
-            return None;
-        }
-
-        let delta = Vector::new(x - center_v.x, top_y - center_v.y, z - center_v.z);
-        let local_x = delta.dot(right);
-        let local_z = delta.dot(forward);
-        if local_x.abs() > CAR_HALF_WIDTH + PLAYER_FOOT_RADIUS
-            || local_z.abs() > CAR_HALF_LENGTH + PLAYER_FOOT_RADIUS
-        {
-            return None;
-        }
-
-        Some(stand)
-    }
-
-    fn ramp_ground_height_at(
-        &self,
-        x: f32,
-        z: f32,
-        prev_center_y: f32,
-        current_center_y: f32,
-    ) -> Option<f32> {
-        let mut best: Option<f32> = None;
-        for ramp in RAMPS {
-            let x0 = ramp.0;
-            let x1 = ramp.1;
-            let z0 = ramp.2 - ramp.3;
-            let z1 = ramp.2 + ramp.3;
-            let h = ramp.4;
-
-            if x < x0 || x > x1 || z < z0 || z > z1 {
-                continue;
-            }
-
-            let run = (x1 - x0).max(0.001);
-            let t = ((x - x0) / run).clamp(0.0, 1.0);
-            let stand = t * h + PLAYER_STAND_HEIGHT;
-
-            if prev_center_y < stand - PLAYER_STEP_DOWN
-                || current_center_y > stand + 0.05
-                || self.player.vel_y > 0.0
-            {
-                continue;
-            }
-
-            best = Some(best.map_or(stand, |v| v.max(stand)));
-        }
-
-        best
     }
 }
 
 #[wasm_bindgen]
 impl SimEngine {
     pub fn jump(&mut self) {
-        if self.player.in_car || self.player.vel_y.abs() > 0.001 {
+        if self.player.in_car || !self.player.grounded {
             return;
         }
-
-        if self.player.pos.y <= PLAYER_STAND_HEIGHT + 0.05 {
-            self.player.vel_y = PLAYER_JUMP_SPEED;
-            return;
-        }
-
-        if let Some(block_ground) = self.block_ground_height_at(
-            self.player.pos.x,
-            self.player.pos.z,
-            self.player.pos.y,
-            self.player.pos.y,
-        ) && (self.player.pos.y - block_ground).abs() <= 0.08
-        {
-            self.player.vel_y = PLAYER_JUMP_SPEED;
-            return;
-        }
-
-        if let Some(car_ground) = self.car_ground_height_at(
-            self.player.pos.x,
-            self.player.pos.z,
-            self.player.pos.y,
-            self.player.pos.y,
-        ) && (self.player.pos.y - car_ground).abs() <= 0.08
-        {
-            self.player.vel_y = PLAYER_JUMP_SPEED;
-            return;
-        }
-
-        if let Some(ramp_ground) = self.ramp_ground_height_at(
-            self.player.pos.x,
-            self.player.pos.z,
-            self.player.pos.y,
-            self.player.pos.y,
-        ) && (self.player.pos.y - ramp_ground).abs() <= 0.08
-        {
-            self.player.vel_y = PLAYER_JUMP_SPEED;
-        }
+        self.player.vel_y = PLAYER_JUMP_SPEED;
+        self.player.grounded = false;
     }
 
     pub fn toggle_enter(&mut self) {
         let car_pos = self.rigid_body_set[self.vehicle.body_handle].translation();
+        let car_pos = Vector::new(car_pos.x, car_pos.y, car_pos.z);
+
         if self.player.in_car {
             self.player.pos = Vector::new(
                 car_pos.x + CAR_HALF_WIDTH + 1.0,
@@ -301,6 +117,10 @@ impl SimEngine {
                 car_pos.z,
             );
             self.player.in_car = false;
+            self.player.vel_y = 0.0;
+            self.player.grounded = true;
+            self.set_player_collider_enabled(true);
+            self.teleport_player_body();
             return;
         }
 
@@ -309,7 +129,18 @@ impl SimEngine {
         let enter_radius = 6.0;
         if dx * dx + dz * dz <= enter_radius * enter_radius {
             self.player.in_car = true;
-            self.player.pos = Vector::new(car_pos.x, car_pos.y, car_pos.z);
+            self.player.pos = car_pos;
+            self.set_player_collider_enabled(false);
+            self.teleport_player_body();
+        }
+    }
+}
+
+impl SimEngine {
+    pub(crate) fn teleport_player_body(&mut self) {
+        let pos = self.player.pos;
+        if let Some(body) = self.rigid_body_set.get_mut(self.player.body_handle) {
+            body.set_translation(pos, true);
         }
     }
 }

@@ -19,6 +19,11 @@ impl SimEngine {
         self.player.yaw = 0.0;
         self.player.vel_y = 0.0;
         self.player.in_car = false;
+        self.player.grounded = true;
+        if let Some(collider) = self.collider_set.get_mut(self.player.collider_handle) {
+            collider.set_enabled(true);
+        }
+        self.teleport_player_body();
 
         for wheel in self.vehicle.controller.wheels_mut() {
             wheel.engine_force = 0.0;

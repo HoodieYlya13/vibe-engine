@@ -33,11 +33,18 @@ pub const WORLD_HALF: f32 = 60.0;
 pub const WALL_THICKNESS: f32 = 1.5;
 pub const WALL_HEIGHT: f32 = 6.0;
 
-pub const PLAYER_RADIUS: f32 = 0.6;
+/// Spawn/exit height for the player capsule center (the character controller
+/// snaps it onto the ground from here).
 pub const PLAYER_STAND_HEIGHT: f32 = 1.0;
 pub const PLAYER_FOOT_RADIUS: f32 = 0.35;
+/// Capsule cylinder half-height; total capsule height is
+/// `2 * (PLAYER_CAPSULE_HALF_HEIGHT + PLAYER_FOOT_RADIUS)` = 1.7, matching the visual.
+pub const PLAYER_CAPSULE_HALF_HEIGHT: f32 = 0.5;
+/// Max autostep height and snap-to-ground distance for the character controller.
 pub const PLAYER_STEP_DOWN: f32 = 0.35;
 pub const PLAYER_JUMP_SPEED: f32 = 6.2;
+pub const PLAYER_WALK_SPEED: f32 = 4.0;
+pub const PLAYER_RUN_SPEED: f32 = 7.0;
 
 pub const CAR_HALF_WIDTH: f32 = 1.8;
 pub const CAR_HALF_HEIGHT: f32 = 0.8;
