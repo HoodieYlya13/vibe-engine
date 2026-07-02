@@ -6,7 +6,42 @@ use crate::constants::{
     VEHICLE_ENGINE_BRAKE_IMPULSE, VEHICLE_FOOTBRAKE_IMPULSE, VEHICLE_HANDBRAKE_IMPULSE,
     VEHICLE_MAX_ENGINE_FORCE, VEHICLE_MAX_REVERSE_FORCE, VEHICLE_MAX_STEER,
 };
-use crate::state::{SimEngine, VehicleState};
+use crate::engine::SimEngine;
+
+/// Runtime-mutable driving parameters. Defaults come from `constants.rs`;
+/// the dev console can overwrite them live so iterating on car feel never
+/// requires a wasm rebuild (PRD §8.3). Phase 2 loads these from data files.
+#[derive(Clone, Copy)]
+pub(crate) struct VehicleTuning {
+    pub(crate) max_engine_force: f32,
+    pub(crate) max_reverse_force: f32,
+    pub(crate) footbrake_impulse: f32,
+    pub(crate) engine_brake_impulse: f32,
+    pub(crate) handbrake_impulse: f32,
+    pub(crate) direction_switch_speed: f32,
+    pub(crate) max_steer: f32,
+}
+
+impl Default for VehicleTuning {
+    fn default() -> Self {
+        VehicleTuning {
+            max_engine_force: VEHICLE_MAX_ENGINE_FORCE,
+            max_reverse_force: VEHICLE_MAX_REVERSE_FORCE,
+            footbrake_impulse: VEHICLE_FOOTBRAKE_IMPULSE,
+            engine_brake_impulse: VEHICLE_ENGINE_BRAKE_IMPULSE,
+            handbrake_impulse: VEHICLE_HANDBRAKE_IMPULSE,
+            direction_switch_speed: VEHICLE_DIRECTION_SWITCH_SPEED,
+            max_steer: VEHICLE_MAX_STEER,
+        }
+    }
+}
+
+pub(crate) struct VehicleState {
+    pub(crate) body_handle: RigidBodyHandle,
+    pub(crate) controller: DynamicRayCastVehicleController,
+    pub(crate) spawn_rotation: Rotation,
+    pub(crate) tuning: VehicleTuning,
+}
 
 pub(crate) fn create_vehicle(
     rigid_body_set: &mut RigidBodySet,
@@ -86,6 +121,7 @@ pub(crate) fn create_vehicle(
         body_handle: car_handle,
         controller,
         spawn_rotation: Rotation::IDENTITY,
+        tuning: VehicleTuning::default(),
     }
 }
 
@@ -121,31 +157,32 @@ impl SimEngine {
             forward.dot(body.linvel())
         };
 
+        let tuning = self.vehicle.tuning;
         let mut engine_force = 0.0;
         let mut brake = 0.0;
         if throttle > 0.01 {
-            if forward_speed < -VEHICLE_DIRECTION_SWITCH_SPEED {
-                brake = VEHICLE_FOOTBRAKE_IMPULSE * throttle;
+            if forward_speed < -tuning.direction_switch_speed {
+                brake = tuning.footbrake_impulse * throttle;
             } else {
-                engine_force = VEHICLE_MAX_ENGINE_FORCE * throttle;
+                engine_force = tuning.max_engine_force * throttle;
             }
         } else if throttle < -0.01 {
-            if forward_speed > VEHICLE_DIRECTION_SWITCH_SPEED {
-                brake = VEHICLE_FOOTBRAKE_IMPULSE * -throttle;
+            if forward_speed > tuning.direction_switch_speed {
+                brake = tuning.footbrake_impulse * -throttle;
             } else {
-                engine_force = VEHICLE_MAX_REVERSE_FORCE * throttle;
+                engine_force = tuning.max_reverse_force * throttle;
             }
         } else {
-            brake = VEHICLE_ENGINE_BRAKE_IMPULSE;
+            brake = tuning.engine_brake_impulse;
         }
 
-        let steer_angle = steer * VEHICLE_MAX_STEER;
+        let steer_angle = steer * tuning.max_steer;
 
         for (index, wheel) in self.vehicle.controller.wheels_mut().iter_mut().enumerate() {
             let rear = index >= 2;
             if handbrake && rear {
                 wheel.engine_force = 0.0;
-                wheel.brake = VEHICLE_HANDBRAKE_IMPULSE;
+                wheel.brake = tuning.handbrake_impulse;
             } else {
                 wheel.engine_force = engine_force;
                 wheel.brake = brake;

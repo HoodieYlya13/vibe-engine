@@ -4,7 +4,7 @@ use crate::constants::{
     CAM_STATE_OFFSET, HUD_HINT_ENTER, HUD_HINT_EXIT, HUD_HINT_NONE, HUD_STATE_OFFSET,
     PED_STATE_OFFSET, PED_STATE_STRIDE, PLAYER_STATE_OFFSET,
 };
-use crate::state::SimEngine;
+use crate::engine::SimEngine;
 
 #[wasm_bindgen]
 impl SimEngine {

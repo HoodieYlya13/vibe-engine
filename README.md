@@ -36,6 +36,24 @@ These drive the vehicle (`tests/drive.rs`: drive, brake-to-reverse, handbrake, s
 
 CI runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` on every push.
 
+## 📂 Source Layout
+
+```
+src/
+  lib.rs         — module wiring, re-exports SimEngine
+  engine.rs      — SimEngine struct, constructors, fixed-step system ordering
+  constants.rs   — single source of truth (input bits, SAB layout, world geometry)
+  bridge/        — the sim ⇄ client boundary
+    snapshot.rs  —   state writer (car, player, HUD, camera, peds)
+    input.rs     —   button decoding
+    controls.rs  —   reset / pause / sleep queries
+    dev.rs       —   dev console surface: live tuning, teleports, debug wireframes
+  world/         — static colliders (arena, greybox blocks + ramps)
+  vehicle/       — ray-cast vehicle controller + runtime VehicleTuning
+  character/     — kinematic character controller (player)
+  crowd/         — decorative ped simulation (Phase 4 rewrites this)
+```
+
 ## 🎯 Architecture
 
 This module is strictly decoupled from the rendering layer. It steps the world at a fixed timestep in a Web Worker, reads inputs from a shared ring buffer, and writes snapshots into a double-buffered `SharedArrayBuffer`, ensuring the simulation remains deterministic and framework-agnostic.

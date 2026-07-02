@@ -1,8 +1,7 @@
 use rapier3d::prelude::*;
 use wasm_bindgen::prelude::*;
 
-use crate::constants::{BTN_BACK, BTN_FORWARD, BTN_HANDBRAKE, BTN_LEFT, BTN_RIGHT, BTN_RUN};
-use crate::state::SimEngine;
+use crate::engine::SimEngine;
 
 #[wasm_bindgen]
 impl SimEngine {
@@ -52,26 +51,5 @@ impl SimEngine {
         if !allow {
             self.runtime.paused = false;
         }
-    }
-
-    pub fn set_input_buttons(&mut self, buttons: u32, camera_yaw: f32) {
-        let forward = if (buttons & BTN_FORWARD) != 0 {
-            1.0
-        } else {
-            0.0
-        };
-        let back = if (buttons & BTN_BACK) != 0 { 1.0 } else { 0.0 };
-        let left = if (buttons & BTN_LEFT) != 0 { 1.0 } else { 0.0 };
-        let right = if (buttons & BTN_RIGHT) != 0 { 1.0 } else { 0.0 };
-
-        self.input.forward = (forward - back).clamp(-1.0, 1.0);
-        self.input.right = (right - left).clamp(-1.0, 1.0);
-        self.input.handbrake = if (buttons & BTN_HANDBRAKE) != 0 {
-            1.0
-        } else {
-            0.0
-        };
-        self.input.run = if (buttons & BTN_RUN) != 0 { 1.0 } else { 0.0 };
-        self.input.camera_yaw = camera_yaw;
     }
 }

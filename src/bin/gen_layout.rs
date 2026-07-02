@@ -67,6 +67,22 @@ fn main() {
     c("BLOCK_STATE_STRIDE", BLOCK_STATE_STRIDE);
     c("RAMP_STATE_STRIDE", RAMP_STATE_STRIDE);
 
+    // Vehicle tuning defaults — the dev console seeds its sliders from these
+    // and writes changes back via SimEngine::set_vehicle_tuning.
+    let mut cf = |name: &str, value: f32| {
+        writeln!(out, "export const {name} = {value};").unwrap();
+    };
+    cf("VEHICLE_MAX_ENGINE_FORCE", VEHICLE_MAX_ENGINE_FORCE);
+    cf("VEHICLE_MAX_REVERSE_FORCE", VEHICLE_MAX_REVERSE_FORCE);
+    cf("VEHICLE_FOOTBRAKE_IMPULSE", VEHICLE_FOOTBRAKE_IMPULSE);
+    cf("VEHICLE_ENGINE_BRAKE_IMPULSE", VEHICLE_ENGINE_BRAKE_IMPULSE);
+    cf("VEHICLE_HANDBRAKE_IMPULSE", VEHICLE_HANDBRAKE_IMPULSE);
+    cf(
+        "VEHICLE_DIRECTION_SWITCH_SPEED",
+        VEHICLE_DIRECTION_SWITCH_SPEED,
+    );
+    cf("VEHICLE_MAX_STEER", VEHICLE_MAX_STEER);
+
     let body = out;
     let file = format!(
         "// AUTO-GENERATED from /sim constants by `cargo run --bin gen_layout`.\n\

@@ -3,10 +3,51 @@ use rapier3d::prelude::*;
 use wasm_bindgen::prelude::*;
 
 use crate::constants::{
-    CAR_HALF_WIDTH, PLAYER_JUMP_SPEED, PLAYER_RUN_SPEED, PLAYER_STAND_HEIGHT, PLAYER_STEP_DOWN,
-    PLAYER_WALK_SPEED,
+    CAR_HALF_WIDTH, PLAYER_CAPSULE_HALF_HEIGHT, PLAYER_FOOT_RADIUS, PLAYER_JUMP_SPEED,
+    PLAYER_RUN_SPEED, PLAYER_STAND_HEIGHT, PLAYER_STEP_DOWN, PLAYER_WALK_SPEED,
 };
-use crate::state::SimEngine;
+use crate::engine::SimEngine;
+
+#[derive(Clone, Copy)]
+pub(crate) struct PlayerState {
+    pub(crate) pos: Vector,
+    pub(crate) yaw: f32,
+    pub(crate) vel_y: f32,
+    pub(crate) in_car: bool,
+    pub(crate) grounded: bool,
+    /// Kinematic body carrying the capsule collider; positions are driven by
+    /// the character controller, never by the solver.
+    pub(crate) body_handle: RigidBodyHandle,
+    pub(crate) collider_handle: ColliderHandle,
+}
+
+/// The player: a kinematic body + sensor capsule moved by the character
+/// controller. Sensor, so the solver never generates contacts against it
+/// (the car should not crash into an immovable pole).
+pub(crate) fn spawn_player(
+    rigid_body_set: &mut RigidBodySet,
+    collider_set: &mut ColliderSet,
+) -> PlayerState {
+    let spawn = Vector::new(2.0, PLAYER_STAND_HEIGHT, 0.0);
+    let body = RigidBodyBuilder::kinematic_position_based()
+        .translation(spawn)
+        .build();
+    let body_handle = rigid_body_set.insert(body);
+    let collider = ColliderBuilder::capsule_y(PLAYER_CAPSULE_HALF_HEIGHT, PLAYER_FOOT_RADIUS)
+        .sensor(true)
+        .build();
+    let collider_handle = collider_set.insert_with_parent(collider, body_handle, rigid_body_set);
+
+    PlayerState {
+        pos: spawn,
+        yaw: 0.0,
+        vel_y: 0.0,
+        in_car: false,
+        grounded: true,
+        body_handle,
+        collider_handle,
+    }
+}
 
 /// Controller configuration for every on-foot move. The player collides with
 /// the same colliders the car drives on — blocks, ramp, walls, car chassis —
