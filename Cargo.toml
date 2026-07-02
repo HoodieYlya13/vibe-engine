@@ -7,7 +7,7 @@ repository = "https://github.com/hy13/vibe-heist"
 license = "MIT"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2.108"

@@ -4,9 +4,30 @@ use crate::constants::{
     BLOCKS, CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, PLAYER_FOOT_RADIUS,
     PLAYER_STAND_HEIGHT, RAMPS, WORLD_HALF,
 };
-use crate::state::SimEngine;
+use crate::engine::SimEngine;
 
 const PED_CENTER_HEIGHT: f32 = 0.8;
+
+pub(crate) struct CrowdState {
+    pub(crate) ped_positions: Vec<Vector>,
+}
+
+pub(crate) fn spawn_peds(count: usize) -> CrowdState {
+    let mut ped_positions = Vec::with_capacity(count);
+    let cols = (count as f32).sqrt().ceil() as usize;
+    let spacing = 2.5;
+    let half = cols as f32 * 0.5;
+    for i in 0..count {
+        let x = (i % cols) as f32;
+        let z = (i / cols) as f32;
+        ped_positions.push(Vector::new(
+            (x - half) * spacing,
+            PED_CENTER_HEIGHT,
+            (z - half) * spacing,
+        ));
+    }
+    CrowdState { ped_positions }
+}
 
 impl SimEngine {
     pub(crate) fn update_pedestrians(&mut self, dt: f32) {
@@ -136,30 +157,38 @@ impl SimEngine {
         let mut ground = 0.0;
 
         for ramp in RAMPS {
-            let x0 = ramp.0;
-            let x1 = ramp.1;
-            let z0 = ramp.2 - ramp.3;
-            let z1 = ramp.2 + ramp.3;
+            // Rows are (z_start, z_end, x_center, half_width, height) — the same
+            // interpretation as the Rapier collider in physics.rs.
+            let z0 = ramp.0;
+            let z1 = ramp.1;
+            let x0 = ramp.2 - ramp.3;
+            let x1 = ramp.2 + ramp.3;
             let h = ramp.4;
+            let z_min = z0.min(z1);
+            let z_max = z0.max(z1);
 
             // Side walls: keep agents from clipping through ramp sides.
-            if pos.x >= x0 && pos.x <= x1 {
-                if pos.z > z1 && pos.z < z1 + radius {
-                    pos.z = z1 + radius;
-                } else if pos.z < z0 && pos.z > z0 - radius {
-                    pos.z = z0 - radius;
+            if pos.z >= z_min && pos.z <= z_max {
+                if pos.x > x1 && pos.x < x1 + radius {
+                    pos.x = x1 + radius;
+                } else if pos.x < x0 && pos.x > x0 - radius {
+                    pos.x = x0 - radius;
                 }
             }
 
-            // Back wall: prevent clipping through the high-end face.
-            if pos.z >= z0 - radius && pos.z <= z1 + radius && pos.x > x1 && pos.x < x1 + radius {
-                pos.x = x1 + radius;
+            // Back wall: prevent clipping through the high-end face at z1.
+            if pos.x >= x0 - radius && pos.x <= x1 + radius {
+                let dir = (z1 - z0).signum();
+                let outside = (pos.z - z1) * dir;
+                if outside > 0.0 && outside < radius {
+                    pos.z = z1 + radius * dir;
+                }
             }
 
             // Stand on ramp surface when inside top footprint.
-            if pos.x >= x0 && pos.x <= x1 && pos.z >= z0 && pos.z <= z1 {
-                let run = (x1 - x0).max(0.001);
-                let t = ((pos.x - x0) / run).clamp(0.0, 1.0);
+            if pos.x >= x0 && pos.x <= x1 && pos.z >= z_min && pos.z <= z_max {
+                let run = (z1 - z0).abs().max(0.001);
+                let t = ((pos.z - z0).abs() / run).clamp(0.0, 1.0);
                 ground = ground.max(t * h);
             }
         }
