@@ -85,6 +85,7 @@ pub(crate) fn create_vehicle(
     VehicleState {
         body_handle: car_handle,
         controller,
+        spawn_rotation: Rotation::IDENTITY,
     }
 }
 

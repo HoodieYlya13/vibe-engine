@@ -62,7 +62,15 @@ impl SimEngine {
             Self::insert_obstacles(&mut rigid_body_set, &mut collider_set);
         }
 
-        let vehicle = create_vehicle(&mut rigid_body_set, &mut collider_set);
+        let mut vehicle = create_vehicle(&mut rigid_body_set, &mut collider_set);
+
+        if with_obstacles {
+            let rotation = Rotation::from_rotation_y(std::f32::consts::PI);
+            vehicle.spawn_rotation = rotation;
+            if let Some(body) = rigid_body_set.get_mut(vehicle.body_handle) {
+                body.set_rotation(rotation, true);
+            }
+        }
 
         let ped_count = count as usize;
         let mut ped_positions = Vec::with_capacity(ped_count);

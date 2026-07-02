@@ -22,6 +22,7 @@ pub(crate) struct PlayerState {
 pub(crate) struct VehicleState {
     pub(crate) body_handle: RigidBodyHandle,
     pub(crate) controller: DynamicRayCastVehicleController,
+    pub(crate) spawn_rotation: Rotation,
 }
 
 pub(crate) struct RuntimeState {
