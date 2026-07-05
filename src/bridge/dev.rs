@@ -6,6 +6,7 @@ use rapier3d::pipeline::{DebugColor, DebugRenderBackend, DebugRenderObject, Debu
 use rapier3d::prelude::*;
 use wasm_bindgen::prelude::*;
 
+use crate::constants::CAR_HALF_WIDTH;
 use crate::engine::SimEngine;
 
 /// Collects debug lines as a flat [x0,y0,z0, x1,y1,z1, ...] vertex list.
@@ -34,6 +35,10 @@ impl SimEngine {
         handbrake_impulse: f32,
         direction_switch_speed: f32,
         max_steer: f32,
+        rear_steer: f32,
+        anti_roll: f32,
+        reverse_stability: f32,
+        air_control: f32,
     ) {
         let tuning = &mut self.vehicle.tuning;
         tuning.max_engine_force = max_engine_force;
@@ -43,6 +48,10 @@ impl SimEngine {
         tuning.handbrake_impulse = handbrake_impulse;
         tuning.direction_switch_speed = direction_switch_speed;
         tuning.max_steer = max_steer;
+        tuning.rear_steer = rear_steer;
+        tuning.anti_roll = anti_roll;
+        tuning.reverse_stability = reverse_stability;
+        tuning.air_control = air_control;
     }
 
     pub fn teleport_player(&mut self, x: f32, y: f32, z: f32) {
@@ -65,6 +74,19 @@ impl SimEngine {
         if self.player.in_car {
             self.player.pos = Vector::new(x, y + 0.9, z);
             self.teleport_player_body();
+        }
+    }
+
+    /// Drops the car onto its side at its current position — dev tool for
+    /// exercising the anti-roll self-righting assist.
+    pub fn flip_car(&mut self) {
+        if let Some(body) = self.rigid_body_set.get_mut(self.vehicle.body_handle) {
+            let pos = body.translation();
+            body.set_translation(Vector::new(pos.x, CAR_HALF_WIDTH + 0.3, pos.z), true);
+            body.set_rotation(Rotation::from_rotation_z(std::f32::consts::FRAC_PI_2), true);
+            body.set_linvel(Vector::new(0.0, 0.0, 0.0), true);
+            body.set_angvel(Vector::new(0.0, 0.0, 0.0), true);
+            body.wake_up(true);
         }
     }
 

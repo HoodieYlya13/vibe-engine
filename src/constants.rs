@@ -28,6 +28,19 @@ pub const VEHICLE_HANDBRAKE_IMPULSE: f32 = 150.0;
 // braking to driving the other way (W accelerates, S brakes-then-reverses).
 pub const VEHICLE_DIRECTION_SWITCH_SPEED: f32 = 0.6;
 pub const VEHICLE_MAX_STEER: f32 = 0.6;
+/// Rear wheels steer counter-phase by this fraction of the front angle
+/// (positive = drifty oversteer, negative = crab-walk stability, 0 = off).
+pub const VEHICLE_REAR_STEER: f32 = 0.35;
+/// Roll-only righting torque (N·m per radian of lean about the forward axis).
+/// Fights side-flips and slowly self-rights a tipped car; pitch is untouched.
+pub const VEHICLE_ANTI_ROLL: f32 = 24000.0;
+/// Reverse steering is inherently twitchy (the steered axle trails the
+/// motion), so while backing up the steer angle is scaled by
+/// `1 / (1 + reverse_stability * reverse_speed)` — ~half authority at 7 m/s.
+pub const VEHICLE_REVERSE_STABILITY: f32 = 0.15;
+/// Torque authority (N·m) for throttle-pitch / steer-yaw when no wheel touches
+/// the ground — rocks a beached car free and orients jumps.
+pub const VEHICLE_AIR_CONTROL: f32 = 9000.0;
 
 pub const WORLD_HALF: f32 = 60.0;
 pub const WALL_THICKNESS: f32 = 1.5;
