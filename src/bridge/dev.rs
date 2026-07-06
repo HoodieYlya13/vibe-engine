@@ -40,6 +40,7 @@ impl SimEngine {
         anti_roll: f32,
         reverse_stability: f32,
         air_control: f32,
+        handbrake_grip: f32,
     ) {
         let tuning = &mut self.vehicle.tuning;
         tuning.max_engine_force = max_engine_force;
@@ -53,6 +54,7 @@ impl SimEngine {
         tuning.anti_roll = anti_roll;
         tuning.reverse_stability = reverse_stability;
         tuning.air_control = air_control;
+        tuning.handbrake_grip = handbrake_grip;
     }
 
     /// The current live tuning values, in `set_vehicle_tuning` argument order
@@ -71,6 +73,7 @@ impl SimEngine {
             t.anti_roll,
             t.reverse_stability,
             t.air_control,
+            t.handbrake_grip,
         ]
     }
 

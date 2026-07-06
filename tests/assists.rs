@@ -1,10 +1,11 @@
 //! Tests for the arcade handling assists (PRD Phase 2): counter-phase rear
-//! steering, roll-only anti-flip righting, reverse steer scaling, and airborne
-//! throttle/steer control. Each test compares an assist against its disabled
-//! (zeroed) variant so it proves the assist itself, not just stable defaults.
+//! steering, roll-only anti-flip righting, reverse steer scaling, airborne
+//! throttle/steer control, and the handbrake rear-grip cut. Each test compares
+//! an assist against its disabled variant so it proves the assist itself, not
+//! just stable defaults.
 
 use sim::SimEngine;
-use sim::constants::{BTN_BACK, BTN_FORWARD, BTN_RIGHT};
+use sim::constants::{BTN_BACK, BTN_FORWARD, BTN_HANDBRAKE, BTN_RIGHT};
 
 const HZ: usize = 60;
 
@@ -14,6 +15,7 @@ const REAR_STEER: usize = 7;
 const ANTI_ROLL: usize = 8;
 const REVERSE_STABILITY: usize = 9;
 const AIR_CONTROL: usize = 10;
+const HANDBRAKE_GRIP: usize = 11;
 
 struct Harness {
     engine: SimEngine,
@@ -28,7 +30,7 @@ impl Harness {
         let mut v = engine.vehicle_tuning();
         tweak(&mut v);
         engine.set_vehicle_tuning(
-            v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+            v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11],
         );
         let len = engine.state_len();
         let mut h = Harness {
@@ -54,6 +56,11 @@ impl Harness {
     fn quat(&mut self) -> (f32, f32, f32, f32) {
         self.engine.write_state(&mut self.buf);
         (self.buf[3], self.buf[4], self.buf[5], self.buf[6])
+    }
+
+    fn pos_xz(&mut self) -> (f32, f32) {
+        self.engine.write_state(&mut self.buf);
+        (self.buf[0], self.buf[2])
     }
 
     /// Y component of the chassis up axis: 1 = level, 0 = on its side.
@@ -182,6 +189,50 @@ fn anti_roll_rights_a_flipped_car() {
     assert!(
         unassisted < 0.3,
         "control run invalid — car righted itself without the assist: up_y = {unassisted}"
+    );
+}
+
+#[test]
+fn handbrake_grip_cut_swings_the_tail() {
+    // Build speed, then yank the handbrake while steering. Heading change is
+    // dominated by the front wheels either way; the drift shows up as slip —
+    // the nose pointing into the turn (positive, tail-out) while the velocity
+    // keeps going wide. With full grip the handbrake only plows (slip ≤ 0).
+    let max_tail_out = |handbrake_grip: f32| {
+        let mut h = Harness::new(|v| v[HANDBRAKE_GRIP] = handbrake_grip);
+        h.hold(BTN_FORWARD, 2.0);
+        h.engine
+            .set_input_buttons(BTN_FORWARD | BTN_RIGHT | BTN_HANDBRAKE, 0.0);
+        let mut prev = h.pos_xz();
+        let mut max_slip = 0.0f32;
+        for _ in 0..((1.2 * HZ as f32) as usize) {
+            h.engine.step();
+            let pos = h.pos_xz();
+            let (dx, dz) = (pos.0 - prev.0, pos.1 - prev.1);
+            prev = pos;
+            if dx * dx + dz * dz < 1e-6 {
+                continue;
+            }
+            let mut slip = h.yaw() - dx.atan2(dz);
+            if slip > std::f32::consts::PI {
+                slip -= std::f32::consts::TAU;
+            } else if slip < -std::f32::consts::PI {
+                slip += std::f32::consts::TAU;
+            }
+            max_slip = max_slip.max(slip);
+        }
+        max_slip
+    };
+
+    let gripped = max_tail_out(1.0);
+    let loose = max_tail_out(default_tuning(HANDBRAKE_GRIP));
+    assert!(
+        loose > 0.25,
+        "drift grip failed to swing the tail out: max slip {loose} rad"
+    );
+    assert!(
+        gripped < 0.15,
+        "control run invalid — tail swung out even at full grip: {gripped} rad"
     );
 }
 

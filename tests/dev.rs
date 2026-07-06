@@ -13,7 +13,7 @@ fn drive_forward_distance(engine_force: Option<f32>) -> f32 {
         let mut v = engine.vehicle_tuning();
         v[0] = force;
         engine.set_vehicle_tuning(
-            v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+            v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11],
         );
     }
 

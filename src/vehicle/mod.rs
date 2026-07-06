@@ -25,6 +25,7 @@ pub(crate) struct VehicleTuning {
     pub(crate) anti_roll: f32,
     pub(crate) reverse_stability: f32,
     pub(crate) air_control: f32,
+    pub(crate) handbrake_grip: f32,
 }
 
 pub(crate) struct VehicleState {
@@ -187,8 +188,26 @@ impl SimEngine {
             steer_angle /= 1.0 + tuning.reverse_stability * -forward_speed;
         }
 
+        // Handbrake drift: while the handbrake is held the rear tires keep
+        // only `handbrake_grip` of their grip, so the tail breaks loose and
+        // swings instead of the brake just scrubbing speed. Both knobs must
+        // shrink: `friction_slip` bounds the saturated (sliding) grip that
+        // dominates hard cornering, `side_friction_stiffness` the rest.
+        let wheels_spec = &self.vehicle.classes[self.vehicle.class_index].wheels;
+        let grip = if handbrake {
+            tuning.handbrake_grip
+        } else {
+            1.0
+        };
+        let rear_side_friction = wheels_spec.side_friction_stiffness * grip;
+        let rear_friction_slip = wheels_spec.friction_slip * grip;
+
         for (index, wheel) in self.vehicle.controller.wheels_mut().iter_mut().enumerate() {
             let rear = index >= 2;
+            if rear {
+                wheel.side_friction_stiffness = rear_side_friction;
+                wheel.friction_slip = rear_friction_slip;
+            }
             if handbrake && rear {
                 wheel.engine_force = 0.0;
                 wheel.brake = tuning.handbrake_impulse;

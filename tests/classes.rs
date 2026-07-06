@@ -26,11 +26,11 @@ fn data_file_defines_the_three_classes() {
 fn tuning_getter_matches_setter_order() {
     let mut engine = SimEngine::new_open_field(0);
     let mut v = engine.vehicle_tuning();
-    assert_eq!(v.len(), 11);
+    assert_eq!(v.len(), 12);
     v[0] = 1234.0;
-    v[10] = 42.0;
+    v[11] = 0.42;
     engine.set_vehicle_tuning(
-        v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+        v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11],
     );
     assert_eq!(
         engine.vehicle_tuning(),
@@ -119,7 +119,7 @@ fn reapplying_the_class_resets_live_tuning() {
     let mut v = defaults.clone();
     v[0] = 15000.0;
     engine.set_vehicle_tuning(
-        v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
+        v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11],
     );
     assert_ne!(engine.vehicle_tuning(), defaults);
 

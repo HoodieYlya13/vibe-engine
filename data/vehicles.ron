@@ -36,6 +36,7 @@
                 anti_roll: 24000.0,
                 reverse_stability: 0.15,
                 air_control: 9000.0,
+                handbrake_grip: 0.12,
             ),
         ),
         (
@@ -69,6 +70,7 @@
                 anti_roll: 20000.0,
                 reverse_stability: 0.18,
                 air_control: 7500.0,
+                handbrake_grip: 0.1,
             ),
         ),
         (
@@ -102,6 +104,7 @@
                 anti_roll: 46000.0,
                 reverse_stability: 0.2,
                 air_control: 14000.0,
+                handbrake_grip: 0.35,
             ),
         ),
     ],
