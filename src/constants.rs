@@ -59,7 +59,9 @@ pub const RAMP_STATE_STRIDE: u32 = 5;
 pub type RampDef = (f32, f32, f32, f32, f32);
 pub const RAMPS: &[RampDef] = &[(-8.0, -24.0, 0.0, 2.6, 3.0)];
 
-pub const CAR_STATE_FLOATS: u32 = 7;
+pub const CAR_STATE_FLOATS: u32 = 8;
+/// Index of the car health float (1.0 pristine → 0.0 destroyed) in the car block.
+pub const CAR_HEALTH_OFFSET: u32 = 7;
 pub const PLAYER_STATE_FLOATS: u32 = 5;
 pub const HUD_STATE_FLOATS: u32 = 1;
 pub const CAM_STATE_FLOATS: u32 = 4;

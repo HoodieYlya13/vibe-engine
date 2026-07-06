@@ -6,6 +6,7 @@ use crate::engine::SimEngine;
 #[wasm_bindgen]
 impl SimEngine {
     pub fn reset_car(&mut self) {
+        self.vehicle.health = 1.0;
         if let Some(body) = self.rigid_body_set.get_mut(self.vehicle.body_handle) {
             body.set_translation(Vector::new(0.0, 1.0, 0.0), true);
             body.set_rotation(self.vehicle.spawn_rotation, true);

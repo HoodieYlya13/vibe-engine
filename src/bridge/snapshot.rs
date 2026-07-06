@@ -1,8 +1,8 @@
 use wasm_bindgen::prelude::*;
 
 use crate::constants::{
-    CAM_STATE_OFFSET, HUD_HINT_ENTER, HUD_HINT_EXIT, HUD_HINT_NONE, HUD_STATE_OFFSET,
-    PED_STATE_OFFSET, PED_STATE_STRIDE, PLAYER_STATE_OFFSET,
+    CAM_STATE_OFFSET, CAR_HEALTH_OFFSET, HUD_HINT_ENTER, HUD_HINT_EXIT, HUD_HINT_NONE,
+    HUD_STATE_OFFSET, PED_STATE_OFFSET, PED_STATE_STRIDE, PLAYER_STATE_OFFSET,
 };
 use crate::engine::SimEngine;
 
@@ -26,6 +26,7 @@ impl SimEngine {
         out[4] = rotation.y;
         out[5] = rotation.z;
         out[6] = rotation.w;
+        out[CAR_HEALTH_OFFSET as usize] = self.vehicle.health;
 
         let player_offset = PLAYER_STATE_OFFSET as usize;
         out[player_offset] = self.player.pos.x;

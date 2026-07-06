@@ -33,12 +33,22 @@ pub(crate) struct WheelSpec {
     pub(crate) max_suspension_force: f32,
 }
 
+#[derive(Clone, Copy, Deserialize)]
+pub(crate) struct DamageSpec {
+    /// Single-step chassis Δv (m/s) the car shrugs off. Legitimate driving
+    /// stays well below it — see `SimEngine::apply_impact_damage`.
+    pub(crate) impact_threshold: f32,
+    /// Health (0..1) lost per m/s of Δv beyond the threshold.
+    pub(crate) impact_scale: f32,
+}
+
 #[derive(Clone, Deserialize)]
 pub(crate) struct VehicleSpec {
     pub(crate) name: String,
     pub(crate) chassis: ChassisSpec,
     pub(crate) wheels: WheelSpec,
     pub(crate) drive: VehicleTuning,
+    pub(crate) damage: DamageSpec,
 }
 
 #[derive(Deserialize)]
