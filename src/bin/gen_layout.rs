@@ -67,25 +67,9 @@ fn main() {
     c("BLOCK_STATE_STRIDE", BLOCK_STATE_STRIDE);
     c("RAMP_STATE_STRIDE", RAMP_STATE_STRIDE);
 
-    // Vehicle tuning defaults — the dev console seeds its sliders from these
-    // and writes changes back via SimEngine::set_vehicle_tuning.
-    let mut cf = |name: &str, value: f32| {
-        writeln!(out, "export const {name} = {value};").unwrap();
-    };
-    cf("VEHICLE_MAX_ENGINE_FORCE", VEHICLE_MAX_ENGINE_FORCE);
-    cf("VEHICLE_MAX_REVERSE_FORCE", VEHICLE_MAX_REVERSE_FORCE);
-    cf("VEHICLE_FOOTBRAKE_IMPULSE", VEHICLE_FOOTBRAKE_IMPULSE);
-    cf("VEHICLE_ENGINE_BRAKE_IMPULSE", VEHICLE_ENGINE_BRAKE_IMPULSE);
-    cf("VEHICLE_HANDBRAKE_IMPULSE", VEHICLE_HANDBRAKE_IMPULSE);
-    cf(
-        "VEHICLE_DIRECTION_SWITCH_SPEED",
-        VEHICLE_DIRECTION_SWITCH_SPEED,
-    );
-    cf("VEHICLE_MAX_STEER", VEHICLE_MAX_STEER);
-    cf("VEHICLE_REAR_STEER", VEHICLE_REAR_STEER);
-    cf("VEHICLE_ANTI_ROLL", VEHICLE_ANTI_ROLL);
-    cf("VEHICLE_REVERSE_STABILITY", VEHICLE_REVERSE_STABILITY);
-    cf("VEHICLE_AIR_CONTROL", VEHICLE_AIR_CONTROL);
+    // Vehicle tuning lives in data/vehicles.ron per class; the dev console
+    // seeds its sliders from the live sim (SimEngine::vehicle_tuning), so
+    // nothing vehicle-related is emitted here anymore.
 
     let body = out;
     let file = format!(

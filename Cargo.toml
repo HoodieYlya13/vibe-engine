@@ -15,3 +15,6 @@ console_error_panic_hook = "0.1.7"
 
 rapier3d = { version = "0.32", features = ["simd-stable", "debug-render"] }
 nalgebra = "0.34"
+
+serde = { version = "1", features = ["derive"] }
+ron = "0.8"

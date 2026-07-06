@@ -1,18 +1,18 @@
+mod spec;
+
 use rapier3d::control::{DynamicRayCastVehicleController, WheelTuning};
 use rapier3d::prelude::*;
+use serde::Deserialize;
 
-use crate::constants::{
-    CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, VEHICLE_AIR_CONTROL, VEHICLE_ANTI_ROLL,
-    VEHICLE_DIRECTION_SWITCH_SPEED, VEHICLE_ENGINE_BRAKE_IMPULSE, VEHICLE_FOOTBRAKE_IMPULSE,
-    VEHICLE_HANDBRAKE_IMPULSE, VEHICLE_MAX_ENGINE_FORCE, VEHICLE_MAX_REVERSE_FORCE,
-    VEHICLE_MAX_STEER, VEHICLE_REAR_STEER, VEHICLE_REVERSE_STABILITY,
-};
+pub(crate) use spec::VehicleSpec;
+
+use crate::constants::{CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH};
 use crate::engine::SimEngine;
 
-/// Runtime-mutable driving parameters. Defaults come from `constants.rs`;
-/// the dev console can overwrite them live so iterating on car feel never
-/// requires a wasm rebuild (PRD §8.3). Phase 2 loads these from data files.
-#[derive(Clone, Copy)]
+/// Runtime-mutable driving parameters. Defaults come from the active class in
+/// `data/vehicles.ron`; the dev console can overwrite them live so iterating
+/// on car feel never requires a wasm rebuild (PRD §8.3/§8.6).
+#[derive(Clone, Copy, Deserialize)]
 pub(crate) struct VehicleTuning {
     pub(crate) max_engine_force: f32,
     pub(crate) max_reverse_force: f32,
@@ -27,48 +27,63 @@ pub(crate) struct VehicleTuning {
     pub(crate) air_control: f32,
 }
 
-impl Default for VehicleTuning {
-    fn default() -> Self {
-        VehicleTuning {
-            max_engine_force: VEHICLE_MAX_ENGINE_FORCE,
-            max_reverse_force: VEHICLE_MAX_REVERSE_FORCE,
-            footbrake_impulse: VEHICLE_FOOTBRAKE_IMPULSE,
-            engine_brake_impulse: VEHICLE_ENGINE_BRAKE_IMPULSE,
-            handbrake_impulse: VEHICLE_HANDBRAKE_IMPULSE,
-            direction_switch_speed: VEHICLE_DIRECTION_SWITCH_SPEED,
-            max_steer: VEHICLE_MAX_STEER,
-            rear_steer: VEHICLE_REAR_STEER,
-            anti_roll: VEHICLE_ANTI_ROLL,
-            reverse_stability: VEHICLE_REVERSE_STABILITY,
-            air_control: VEHICLE_AIR_CONTROL,
-        }
-    }
-}
-
 pub(crate) struct VehicleState {
     pub(crate) body_handle: RigidBodyHandle,
     pub(crate) controller: DynamicRayCastVehicleController,
     pub(crate) spawn_rotation: Rotation,
     pub(crate) tuning: VehicleTuning,
+    pub(crate) classes: Vec<VehicleSpec>,
+    pub(crate) class_index: usize,
 }
 
 pub(crate) fn create_vehicle(
     rigid_body_set: &mut RigidBodySet,
     collider_set: &mut ColliderSet,
 ) -> VehicleState {
-    // The 1200 kg sits below the chassis center so lateral grip has less
-    // leverage to roll the car over; the principal inertia mirrors what
-    // `additional_mass(1200.0)` used to derive from the cuboid, keeping the
-    // pre-existing yaw/pitch response.
+    let classes = spec::load_vehicle_classes();
+    let class_index = 0;
+    let class = classes[class_index].clone();
+    let (body_handle, controller) = build_vehicle_body(rigid_body_set, collider_set, &class);
+
+    VehicleState {
+        body_handle,
+        controller,
+        spawn_rotation: Rotation::IDENTITY,
+        tuning: class.drive,
+        classes,
+        class_index,
+    }
+}
+
+/// Builds the chassis body + collider + wheel controller for one class spec.
+/// Also used when the dev console swaps classes at runtime.
+pub(crate) fn build_vehicle_body(
+    rigid_body_set: &mut RigidBodySet,
+    collider_set: &mut ColliderSet,
+    class: &VehicleSpec,
+) -> (RigidBodyHandle, DynamicRayCastVehicleController) {
+    // The class mass sits below the chassis center so lateral grip has less
+    // leverage to roll the car over. The principal inertia is the full-size
+    // cuboid's at that mass, so yaw/pitch response scales with the class.
+    let (w, h, l) = (
+        2.0 * CAR_HALF_WIDTH,
+        2.0 * CAR_HALF_HEIGHT,
+        2.0 * CAR_HALF_LENGTH,
+    );
+    let inertia = Vector::new(
+        class.chassis.mass / 12.0 * (h * h + l * l),
+        class.chassis.mass / 12.0 * (w * w + l * l),
+        class.chassis.mass / 12.0 * (w * w + h * h),
+    );
     let car_body = RigidBodyBuilder::dynamic()
         .translation(Vector::new(0.0, 1.4, 0.0))
         .additional_mass_properties(MassProperties::new(
-            Vector::new(0.0, -0.5, 0.0),
-            1200.0,
-            Vector::new(4500.0, 5560.0, 1600.0),
+            Vector::new(0.0, -class.chassis.com_drop, 0.0),
+            class.chassis.mass,
+            inertia,
         ))
-        .linear_damping(0.28)
-        .angular_damping(2.8)
+        .linear_damping(class.chassis.linear_damping)
+        .angular_damping(class.chassis.angular_damping)
         .build();
     let car_collider = ColliderBuilder::cuboid(CAR_HALF_WIDTH, CAR_HALF_HEIGHT, CAR_HALF_LENGTH)
         .restitution(0.1)
@@ -81,16 +96,15 @@ pub(crate) fn create_vehicle(
     controller.index_up_axis = 1;
     controller.index_forward_axis = 2;
 
-    let wheel_radius = 0.5;
-    let suspension_rest = 0.45;
+    let wheels = &class.wheels;
     let tuning = WheelTuning {
-        suspension_stiffness: 20.0,
-        suspension_compression: 4.5,
-        suspension_damping: 4.5,
-        max_suspension_travel: 0.24,
-        side_friction_stiffness: 1.2,
-        friction_slip: 9.0,
-        max_suspension_force: 18000.0,
+        suspension_stiffness: wheels.suspension_stiffness,
+        suspension_compression: wheels.suspension_compression,
+        suspension_damping: wheels.suspension_damping,
+        max_suspension_travel: wheels.max_suspension_travel,
+        side_friction_stiffness: wheels.side_friction_stiffness,
+        friction_slip: wheels.friction_slip,
+        max_suspension_force: wheels.max_suspension_force,
     };
     let half_width = CAR_HALF_WIDTH * 0.85;
     let half_length = CAR_HALF_LENGTH * 0.8;
@@ -101,45 +115,18 @@ pub(crate) fn create_vehicle(
     // force drives the chassis toward its steering wheels.
     let axle = Vector::new(-1.0, 0.0, 0.0);
 
-    controller.add_wheel(
-        Vector::new(-half_width, connection_height, half_length),
-        direction,
-        axle,
-        suspension_rest,
-        wheel_radius,
-        &tuning,
-    );
-    controller.add_wheel(
-        Vector::new(half_width, connection_height, half_length),
-        direction,
-        axle,
-        suspension_rest,
-        wheel_radius,
-        &tuning,
-    );
-    controller.add_wheel(
-        Vector::new(-half_width, connection_height, -half_length),
-        direction,
-        axle,
-        suspension_rest,
-        wheel_radius,
-        &tuning,
-    );
-    controller.add_wheel(
-        Vector::new(half_width, connection_height, -half_length),
-        direction,
-        axle,
-        suspension_rest,
-        wheel_radius,
-        &tuning,
-    );
-
-    VehicleState {
-        body_handle: car_handle,
-        controller,
-        spawn_rotation: Rotation::IDENTITY,
-        tuning: VehicleTuning::default(),
+    for (x_sign, z_sign) in [(-1.0, 1.0), (1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] {
+        controller.add_wheel(
+            Vector::new(x_sign * half_width, connection_height, z_sign * half_length),
+            direction,
+            axle,
+            wheels.suspension_rest,
+            wheels.radius,
+            &tuning,
+        );
     }
+
+    (car_handle, controller)
 }
 
 impl SimEngine {

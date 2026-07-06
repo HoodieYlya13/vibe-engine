@@ -1,59 +1,34 @@
 //! Tests for the arcade handling assists (PRD Phase 2): counter-phase rear
-//! steering, roll-only anti-flip righting, reverse yaw damping, and airborne
+//! steering, roll-only anti-flip righting, reverse steer scaling, and airborne
 //! throttle/steer control. Each test compares an assist against its disabled
 //! (zeroed) variant so it proves the assist itself, not just stable defaults.
 
 use sim::SimEngine;
-use sim::constants::{
-    BTN_BACK, BTN_FORWARD, BTN_RIGHT, VEHICLE_AIR_CONTROL, VEHICLE_ANTI_ROLL,
-    VEHICLE_DIRECTION_SWITCH_SPEED, VEHICLE_ENGINE_BRAKE_IMPULSE, VEHICLE_FOOTBRAKE_IMPULSE,
-    VEHICLE_HANDBRAKE_IMPULSE, VEHICLE_MAX_ENGINE_FORCE, VEHICLE_MAX_REVERSE_FORCE,
-    VEHICLE_MAX_STEER, VEHICLE_REAR_STEER, VEHICLE_REVERSE_STABILITY,
-};
+use sim::constants::{BTN_BACK, BTN_FORWARD, BTN_RIGHT};
 
 const HZ: usize = 60;
+
+/// Indices into the `vehicle_tuning()` vector (= `set_vehicle_tuning` order).
+const ENGINE_FORCE: usize = 0;
+const REAR_STEER: usize = 7;
+const ANTI_ROLL: usize = 8;
+const REVERSE_STABILITY: usize = 9;
+const AIR_CONTROL: usize = 10;
 
 struct Harness {
     engine: SimEngine,
     buf: Vec<f32>,
 }
 
-/// Overrides for the assist-related tuning values; everything else stays stock.
-struct Assists {
-    engine_force: f32,
-    rear_steer: f32,
-    anti_roll: f32,
-    reverse_stability: f32,
-    air_control: f32,
-}
-
-impl Default for Assists {
-    fn default() -> Self {
-        Assists {
-            engine_force: VEHICLE_MAX_ENGINE_FORCE,
-            rear_steer: VEHICLE_REAR_STEER,
-            anti_roll: VEHICLE_ANTI_ROLL,
-            reverse_stability: VEHICLE_REVERSE_STABILITY,
-            air_control: VEHICLE_AIR_CONTROL,
-        }
-    }
-}
-
 impl Harness {
-    fn new(assists: &Assists) -> Self {
+    /// Open-field engine with the default (sedan) tuning, after letting
+    /// `tweak` override individual values, already seated in the car.
+    fn new(tweak: impl FnOnce(&mut [f32])) -> Self {
         let mut engine = SimEngine::new_open_field(0);
+        let mut v = engine.vehicle_tuning();
+        tweak(&mut v);
         engine.set_vehicle_tuning(
-            assists.engine_force,
-            VEHICLE_MAX_REVERSE_FORCE,
-            VEHICLE_FOOTBRAKE_IMPULSE,
-            VEHICLE_ENGINE_BRAKE_IMPULSE,
-            VEHICLE_HANDBRAKE_IMPULSE,
-            VEHICLE_DIRECTION_SWITCH_SPEED,
-            VEHICLE_MAX_STEER,
-            assists.rear_steer,
-            assists.anti_roll,
-            assists.reverse_stability,
-            assists.air_control,
+            v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10],
         );
         let len = engine.state_len();
         let mut h = Harness {
@@ -121,13 +96,15 @@ impl Harness {
     }
 }
 
+/// The sedan's default value for one tuning slot (for restoring after zeroing).
+fn default_tuning(index: usize) -> f32 {
+    SimEngine::new_open_field(0).vehicle_tuning()[index]
+}
+
 #[test]
 fn rear_steer_tightens_the_turn() {
     let turn = |rear_steer: f32| {
-        let mut h = Harness::new(&Assists {
-            rear_steer,
-            ..Assists::default()
-        });
+        let mut h = Harness::new(|v| v[REAR_STEER] = rear_steer);
         h.hold(BTN_FORWARD, 1.0);
         h.turned_while_holding(BTN_FORWARD | BTN_RIGHT, 1.5).abs()
     };
@@ -144,23 +121,20 @@ fn rear_steer_tightens_the_turn() {
 #[test]
 fn reverse_stability_calms_reverse_steering() {
     // Unassisted reverse steering yaws ~1.5 rad/s — far twitchier than
-    // forward driving. The yaw damping should cut a full-lock reverse turn
-    // down substantially without touching forward handling.
+    // forward driving. The reverse steer scaling should cut a full-lock
+    // reverse turn down substantially without touching forward handling.
     let reverse_turn = |reverse_stability: f32| {
-        let mut h = Harness::new(&Assists {
-            reverse_stability,
-            ..Assists::default()
-        });
+        let mut h = Harness::new(|v| v[REVERSE_STABILITY] = reverse_stability);
         h.hold(BTN_BACK, 2.0);
         h.turned_while_holding(BTN_BACK | BTN_RIGHT, 1.0).abs()
     };
 
     let twitchy = reverse_turn(0.0);
-    let damped = reverse_turn(VEHICLE_REVERSE_STABILITY);
+    let damped = reverse_turn(default_tuning(REVERSE_STABILITY));
     assert!(
         damped < twitchy * 0.75,
-        "reverse yaw damping should calm reverse steering: \
-         undamped {twitchy} rad vs damped {damped} rad"
+        "reverse steer scaling should calm reverse steering: \
+         unassisted {twitchy} rad vs assisted {damped} rad"
     );
     assert!(
         damped > 0.2,
@@ -172,11 +146,10 @@ fn reverse_stability_calms_reverse_steering() {
 fn hard_cornering_stays_on_four_wheels() {
     // Overpowered engine + full rear steer + a hard flick is the flip recipe;
     // the lowered center of mass alone must keep this nearly flat.
-    let mut h = Harness::new(&Assists {
-        engine_force: 14000.0,
-        rear_steer: 1.0,
-        anti_roll: 0.0,
-        ..Assists::default()
+    let mut h = Harness::new(|v| {
+        v[ENGINE_FORCE] = 14000.0;
+        v[REAR_STEER] = 1.0;
+        v[ANTI_ROLL] = 0.0;
     });
     h.hold(BTN_FORWARD, 2.5);
     h.engine.set_input_buttons(BTN_FORWARD | BTN_RIGHT, 0.0);
@@ -194,16 +167,13 @@ fn hard_cornering_stays_on_four_wheels() {
 #[test]
 fn anti_roll_rights_a_flipped_car() {
     let up_after_flip = |anti_roll: f32| {
-        let mut h = Harness::new(&Assists {
-            anti_roll,
-            ..Assists::default()
-        });
+        let mut h = Harness::new(|v| v[ANTI_ROLL] = anti_roll);
         h.engine.flip_car();
         h.step_seconds(4.0);
         h.up_y()
     };
 
-    let assisted = up_after_flip(VEHICLE_ANTI_ROLL);
+    let assisted = up_after_flip(default_tuning(ANTI_ROLL));
     let unassisted = up_after_flip(0.0);
     assert!(
         assisted > 0.9,
@@ -220,16 +190,13 @@ fn air_control_pitches_the_airborne_car() {
     // Drop the car from high up and hold throttle: with air control the nose
     // should dip; with it off the car keeps falling flat.
     let pitch_after_fall = |air_control: f32| {
-        let mut h = Harness::new(&Assists {
-            air_control,
-            ..Assists::default()
-        });
+        let mut h = Harness::new(|v| v[AIR_CONTROL] = air_control);
         h.engine.teleport_car(0.0, 14.0, 0.0);
         h.hold(BTN_FORWARD, 1.0);
         h.forward_y()
     };
 
-    let with_control = pitch_after_fall(VEHICLE_AIR_CONTROL);
+    let with_control = pitch_after_fall(default_tuning(AIR_CONTROL));
     let without = pitch_after_fall(0.0);
     assert!(
         with_control < -0.1,
