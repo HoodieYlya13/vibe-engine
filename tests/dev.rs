@@ -1,11 +1,7 @@
 //! Tests for the dev/test-mode surface: live tuning, teleports, wireframes.
 
 use sim::SimEngine;
-use sim::constants::{
-    BTN_FORWARD, PLAYER_STATE_OFFSET, VEHICLE_DIRECTION_SWITCH_SPEED, VEHICLE_ENGINE_BRAKE_IMPULSE,
-    VEHICLE_FOOTBRAKE_IMPULSE, VEHICLE_HANDBRAKE_IMPULSE, VEHICLE_MAX_REVERSE_FORCE,
-    VEHICLE_MAX_STEER,
-};
+use sim::constants::{BTN_FORWARD, PLAYER_STATE_OFFSET};
 
 const HZ: usize = 60;
 
@@ -14,14 +10,10 @@ fn drive_forward_distance(engine_force: Option<f32>) -> f32 {
     let mut buf = vec![0.0; engine.state_len()];
 
     if let Some(force) = engine_force {
+        let mut v = engine.vehicle_tuning();
+        v[0] = force;
         engine.set_vehicle_tuning(
-            force,
-            VEHICLE_MAX_REVERSE_FORCE,
-            VEHICLE_FOOTBRAKE_IMPULSE,
-            VEHICLE_ENGINE_BRAKE_IMPULSE,
-            VEHICLE_HANDBRAKE_IMPULSE,
-            VEHICLE_DIRECTION_SWITCH_SPEED,
-            VEHICLE_MAX_STEER,
+            v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11],
         );
     }
 

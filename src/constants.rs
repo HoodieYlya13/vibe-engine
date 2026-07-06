@@ -17,17 +17,8 @@ pub const HUD_HINT_NONE: u32 = 0;
 pub const HUD_HINT_ENTER: u32 = 1;
 pub const HUD_HINT_EXIT: u32 = 2;
 
-pub const VEHICLE_MAX_ENGINE_FORCE: f32 = 5200.0;
-pub const VEHICLE_MAX_REVERSE_FORCE: f32 = 2600.0;
-// Rapier consumes `wheel.brake` as a per-step impulse cap (N·s), not a force,
-// and only when that wheel's engine_force is zero.
-pub const VEHICLE_FOOTBRAKE_IMPULSE: f32 = 60.0;
-pub const VEHICLE_ENGINE_BRAKE_IMPULSE: f32 = 8.0;
-pub const VEHICLE_HANDBRAKE_IMPULSE: f32 = 150.0;
-// Below this forward speed (m/s), holding the opposing key switches from
-// braking to driving the other way (W accelerates, S brakes-then-reverses).
-pub const VEHICLE_DIRECTION_SWITCH_SPEED: f32 = 0.6;
-pub const VEHICLE_MAX_STEER: f32 = 0.6;
+// Vehicle driving parameters live in `data/vehicles.ron` (per-class), not
+// here — the drive-tuning source of truth is the data file (PRD Phase 2).
 
 pub const WORLD_HALF: f32 = 60.0;
 pub const WALL_THICKNESS: f32 = 1.5;
