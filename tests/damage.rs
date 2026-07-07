@@ -16,7 +16,8 @@ struct Harness {
 impl Harness {
     /// Open-field engine (arena walls only), already seated in the car.
     fn new() -> Self {
-        let engine = SimEngine::new_open_field(0);
+        let mut engine = SimEngine::new_open_field(0);
+        engine.set_vehicle_class(0);
         let len = engine.state_len();
         let mut h = Harness {
             engine,

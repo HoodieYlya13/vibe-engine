@@ -44,7 +44,7 @@ pub(crate) fn create_vehicle(
     collider_set: &mut ColliderSet,
 ) -> VehicleState {
     let classes = spec::load_vehicle_classes();
-    let class_index = 0;
+    let class_index = 1;
     let class = classes[class_index].clone();
     let (body_handle, controller) = build_vehicle_body(rigid_body_set, collider_set, &class);
 

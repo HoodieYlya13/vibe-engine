@@ -19,7 +19,7 @@ fn data_file_defines_the_three_classes() {
         vec!["sedan", "sports", "truck"],
         "vehicles.ron class list changed — update the tests and dev console expectations"
     );
-    assert_eq!(engine.vehicle_class_index(), 0, "sedan must be the default");
+    assert_eq!(engine.vehicle_class_index(), 1, "sports must be the default");
 }
 
 #[test]
