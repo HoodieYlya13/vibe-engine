@@ -123,6 +123,8 @@ impl SimEngine {
         self.vehicle.controller = controller;
         self.vehicle.tuning = class.drive;
         self.vehicle.class_index = index;
+        // A class switch is a new car — it arrives pristine.
+        self.vehicle.health = 1.0;
     }
 
     pub fn teleport_player(&mut self, x: f32, y: f32, z: f32) {
@@ -146,6 +148,16 @@ impl SimEngine {
             self.player.pos = Vector::new(x, y + 0.9, z);
             self.teleport_player_body();
         }
+    }
+
+    pub fn car_health(&self) -> f32 {
+        self.vehicle.health
+    }
+
+    /// Dev tool: chips `amount` (0..1) off the car's health, so the damage
+    /// tiers and the explosion can be exercised without staging real crashes.
+    pub fn damage_car(&mut self, amount: f32) {
+        self.damage_vehicle(amount);
     }
 
     /// Drops the car onto its side at its current position — dev tool for

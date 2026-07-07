@@ -35,6 +35,8 @@ pub(crate) struct VehicleState {
     pub(crate) tuning: VehicleTuning,
     pub(crate) classes: Vec<VehicleSpec>,
     pub(crate) class_index: usize,
+    /// 1.0 = pristine, 0.0 = destroyed (drivetrain dead until reset).
+    pub(crate) health: f32,
 }
 
 pub(crate) fn create_vehicle(
@@ -42,7 +44,7 @@ pub(crate) fn create_vehicle(
     collider_set: &mut ColliderSet,
 ) -> VehicleState {
     let classes = spec::load_vehicle_classes();
-    let class_index = 0;
+    let class_index = 1;
     let class = classes[class_index].clone();
     let (body_handle, controller) = build_vehicle_body(rigid_body_set, collider_set, &class);
 
@@ -53,6 +55,7 @@ pub(crate) fn create_vehicle(
         tuning: class.drive,
         classes,
         class_index,
+        health: 1.0,
     }
 }
 
@@ -132,7 +135,9 @@ pub(crate) fn build_vehicle_body(
 
 impl SimEngine {
     pub(crate) fn step_vehicle(&mut self, dt: f32) {
-        let (throttle, steer, handbrake) = if self.player.in_car {
+        // A destroyed car (health 0) has no drivetrain: inputs are ignored
+        // and the wreck coasts on engine braking until a reset repairs it.
+        let (throttle, steer, handbrake) = if self.player.in_car && self.vehicle.health > 0.0 {
             (
                 self.input.forward,
                 self.input.right,
@@ -281,6 +286,38 @@ impl SimEngine {
 
         if torque_impulse.length_squared() > 1e-8 {
             body.apply_torque_impulse(torque_impulse, true);
+        }
+    }
+
+    /// Chassis impact damage (PRD §7.1 "cosmetic-plus"), measured as the
+    /// velocity change across the physics solver step. Wheel and suspension
+    /// impulses are applied earlier in `update_vehicle`, so the solver's Δv
+    /// is gravity (≈0.16 m/s per step) plus chassis contact impulses — wall
+    /// hits, bottoming out, landing on the nose or roof. A clean wheels-first
+    /// landing is absorbed by the suspension and never shows up here.
+    pub(crate) fn apply_impact_damage(&mut self, linvel_before: Vector) {
+        let spec = self.vehicle.classes[self.vehicle.class_index].damage;
+        let body = &self.rigid_body_set[self.vehicle.body_handle];
+        let overshoot = (body.linvel() - linvel_before).length() - spec.impact_threshold;
+        if overshoot > 0.0 {
+            self.damage_vehicle(overshoot * spec.impact_scale);
+        }
+    }
+
+    /// Removes `amount` health; crossing zero "explodes" the car — an upward
+    /// pop on the wreck, and `step_vehicle` keeps the drivetrain dead until
+    /// a reset (or class switch) repairs it.
+    pub(crate) fn damage_vehicle(&mut self, amount: f32) {
+        if self.vehicle.health <= 0.0 || amount <= 0.0 {
+            return;
+        }
+        self.vehicle.health = (self.vehicle.health - amount).max(0.0);
+        if self.vehicle.health <= 0.0
+            && let Some(body) = self.rigid_body_set.get_mut(self.vehicle.body_handle)
+        {
+            let pop = body.mass() * 4.0;
+            body.apply_impulse(Vector::Y * pop, true);
+            body.wake_up(true);
         }
     }
 }

@@ -112,6 +112,11 @@ impl SimEngine {
         self.update_player(dt);
         self.update_pedestrians(dt);
 
+        // Wheel/suspension impulses are already applied above, so the car's
+        // velocity change across the solver step isolates chassis contact
+        // impulses — the crash-damage signal (see apply_impact_damage).
+        let car_vel_before = self.rigid_body_set[self.vehicle.body_handle].linvel();
+
         self.pipeline.step(
             self.gravity,
             &self.integration_parameters,
@@ -126,5 +131,7 @@ impl SimEngine {
             &(),
             &(),
         );
+
+        self.apply_impact_damage(car_vel_before);
     }
 }

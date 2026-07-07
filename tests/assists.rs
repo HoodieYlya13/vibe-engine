@@ -27,6 +27,7 @@ impl Harness {
     /// `tweak` override individual values, already seated in the car.
     fn new(tweak: impl FnOnce(&mut [f32])) -> Self {
         let mut engine = SimEngine::new_open_field(0);
+        engine.set_vehicle_class(0);
         let mut v = engine.vehicle_tuning();
         tweak(&mut v);
         engine.set_vehicle_tuning(
@@ -105,7 +106,9 @@ impl Harness {
 
 /// The sedan's default value for one tuning slot (for restoring after zeroing).
 fn default_tuning(index: usize) -> f32 {
-    SimEngine::new_open_field(0).vehicle_tuning()[index]
+    let mut engine = SimEngine::new_open_field(0);
+    engine.set_vehicle_class(0);
+    engine.vehicle_tuning()[index]
 }
 
 #[test]
