@@ -1,8 +1,8 @@
 use wasm_bindgen::prelude::*;
 
 use crate::constants::{
-    CAM_STATE_OFFSET, CAR_HEALTH_OFFSET, HUD_HINT_ENTER, HUD_HINT_EXIT, HUD_HINT_NONE,
-    HUD_STATE_OFFSET, PED_STATE_OFFSET, PED_STATE_STRIDE, PLAYER_STATE_OFFSET,
+    CAM_STATE_OFFSET, CAR_HEALTH_OFFSET, ENTER_RADIUS, HUD_HINT_ENTER, HUD_HINT_EXIT,
+    HUD_HINT_NONE, HUD_STATE_OFFSET, PED_STATE_OFFSET, PED_STATE_STRIDE, PLAYER_STATE_OFFSET,
 };
 use crate::engine::SimEngine;
 
@@ -37,8 +37,7 @@ impl SimEngine {
 
         let dx = self.player.pos.x - translation.x;
         let dz = self.player.pos.z - translation.z;
-        let enter_radius = 6.0;
-        let can_enter = !self.player.in_car && (dx * dx + dz * dz <= enter_radius * enter_radius);
+        let can_enter = !self.player.in_car && (dx * dx + dz * dz <= ENTER_RADIUS * ENTER_RADIUS);
         let hud_hint = if self.player.in_car {
             HUD_HINT_EXIT
         } else if can_enter {

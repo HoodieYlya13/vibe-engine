@@ -40,6 +40,9 @@ pub const PLAYER_RUN_SPEED: f32 = 7.0;
 pub const CAR_HALF_WIDTH: f32 = 1.8;
 pub const CAR_HALF_HEIGHT: f32 = 0.8;
 pub const CAR_HALF_LENGTH: f32 = 3.2;
+/// Max horizontal distance (car center → player) at which pressing enter
+/// starts the walk-to-door. Also drives the HUD "enter" hint.
+pub const ENTER_RADIUS: f32 = 6.0;
 
 pub const BLOCK_STATE_STRIDE: u32 = 6;
 /// (x, y, z, half_x, half_y, half_z)
