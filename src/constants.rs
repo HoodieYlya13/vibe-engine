@@ -24,6 +24,13 @@ pub const WORLD_HALF: f32 = 60.0;
 pub const WALL_THICKNESS: f32 = 1.5;
 pub const WALL_HEIGHT: f32 = 6.0;
 
+/// City streaming (Phase 3, PRD §6): the world is a square grid of chunks of
+/// this size (m); chunk (cx, cz) is centered at (cx·CHUNK_SIZE, cz·CHUNK_SIZE).
+/// Collider sidecars and visuals stream in/out per chunk.
+pub const CHUNK_SIZE: f32 = 100.0;
+/// Half-extent of the city's flat ground slab (placeholder until terrain).
+pub const CITY_GROUND_HALF: f32 = 2000.0;
+
 /// Spawn/exit height for the player capsule center (the character controller
 /// snaps it onto the ground from here).
 pub const PLAYER_STAND_HEIGHT: f32 = 1.0;
@@ -68,11 +75,19 @@ pub const CAR_HEALTH_OFFSET: u32 = 7;
 pub const PLAYER_STATE_FLOATS: u32 = 5;
 pub const HUD_STATE_FLOATS: u32 = 1;
 pub const CAM_STATE_FLOATS: u32 = 4;
+/// Environment block: [time_of_day 0..1) — 0 = midnight, 0.5 = noon.
+pub const ENV_STATE_FLOATS: u32 = 1;
 pub const PED_STATE_STRIDE: u32 = 16;
 pub const PLAYER_STATE_OFFSET: u32 = CAR_STATE_FLOATS;
 pub const HUD_STATE_OFFSET: u32 = PLAYER_STATE_OFFSET + PLAYER_STATE_FLOATS;
 pub const CAM_STATE_OFFSET: u32 = HUD_STATE_OFFSET + HUD_STATE_FLOATS;
-pub const PED_STATE_OFFSET: u32 = CAM_STATE_OFFSET + CAM_STATE_FLOATS;
+pub const ENV_STATE_OFFSET: u32 = CAM_STATE_OFFSET + CAM_STATE_FLOATS;
+pub const PED_STATE_OFFSET: u32 = ENV_STATE_OFFSET + ENV_STATE_FLOATS;
+
+/// One full day/night cycle in real seconds (24 game-min, PRD §6).
+pub const DAY_CYCLE_SECONDS: f32 = 1440.0;
+/// Boot time of day: 10:00 — bright morning light.
+pub const DAY_START_FRACTION: f32 = 10.0 / 24.0;
 pub const STATE_HEADER_INTS: u32 = 3;
 pub const INPUT_HEADER_INTS: u32 = 2;
 pub const INPUT_CAPACITY: u32 = 128;

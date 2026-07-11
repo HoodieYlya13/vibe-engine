@@ -1,22 +1,40 @@
-//! Static world colliders: arena ground + walls, and the greybox obstacles
-//! (blocks, ramps). Geometry values come from `constants.rs` — the same rows
-//! the client renders and the codegen exports.
+//! Static world colliders. Two world kinds exist: the greybox test arena
+//! (ground + walls + blocks/ramps from `constants.rs` — the world every
+//! native test drives in) and the streamed city (flat ground slab only; all
+//! other geometry arrives per-chunk through `chunks.rs`).
 
 use rapier3d::prelude::*;
 
-use crate::constants::{BLOCKS, RAMPS, WALL_HEIGHT, WALL_THICKNESS, WORLD_HALF};
+use crate::constants::{BLOCKS, CITY_GROUND_HALF, RAMPS, WALL_HEIGHT, WALL_THICKNESS, WORLD_HALF};
+
+pub(crate) mod chunks;
+pub(crate) use chunks::ChunkStore;
+
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum WorldKind {
+    Arena { obstacles: bool },
+    City,
+}
 
 pub(crate) fn build_static_world(
     rigid_body_set: &mut RigidBodySet,
     collider_set: &mut ColliderSet,
-    with_obstacles: bool,
+    kind: WorldKind,
 ) {
+    let ground_half = match kind {
+        WorldKind::Arena { .. } => WORLD_HALF,
+        WorldKind::City => CITY_GROUND_HALF,
+    };
     let ground_body = RigidBodyBuilder::fixed()
         .translation(Vector::new(0.0, -0.5, 0.0))
         .build();
-    let ground_collider = ColliderBuilder::cuboid(WORLD_HALF, 0.5, WORLD_HALF).build();
+    let ground_collider = ColliderBuilder::cuboid(ground_half, 0.5, ground_half).build();
     let ground_handle = rigid_body_set.insert(ground_body);
     collider_set.insert_with_parent(ground_collider, ground_handle, rigid_body_set);
+
+    let WorldKind::Arena { obstacles } = kind else {
+        return;
+    };
 
     let wall_body = RigidBodyBuilder::fixed().build();
     let wall_handle = rigid_body_set.insert(wall_body);
@@ -41,7 +59,7 @@ pub(crate) fn build_static_world(
     collider_set.insert_with_parent(wall_z_pos, wall_handle, rigid_body_set);
     collider_set.insert_with_parent(wall_z_neg, wall_handle, rigid_body_set);
 
-    if with_obstacles {
+    if obstacles {
         insert_obstacles(rigid_body_set, collider_set);
     }
 }

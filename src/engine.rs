@@ -3,15 +3,18 @@ use wasm_bindgen::prelude::*;
 
 use crate::bridge::input::InputState;
 use crate::character::{self, PlayerState};
-use crate::constants::DEFAULT_PED_COUNT;
+use crate::constants::{DAY_CYCLE_SECONDS, DAY_START_FRACTION, DEFAULT_PED_COUNT};
 use crate::crowd::{self, CrowdState};
 use crate::vehicle::{self, VehicleState};
-use crate::world;
+use crate::world::{self, ChunkStore, WorldKind};
 
 pub(crate) struct RuntimeState {
     pub(crate) paused: bool,
     pub(crate) allow_pause: bool,
     pub(crate) sim_time: f32,
+    /// Day/night clock, 0..1 of a full cycle (0 = midnight, 0.5 = noon).
+    /// Sim-owned so missions can pin it deterministically (PRD §6, Phase 5).
+    pub(crate) time_of_day: f32,
 }
 
 #[wasm_bindgen]
@@ -32,6 +35,7 @@ pub struct SimEngine {
     pub(crate) player: PlayerState,
     pub(crate) runtime: RuntimeState,
     pub(crate) crowd: CrowdState,
+    pub(crate) chunks: ChunkStore,
 }
 
 impl Default for SimEngine {
@@ -48,23 +52,29 @@ impl SimEngine {
     }
 
     pub fn new_with_peds(count: u32) -> SimEngine {
-        Self::new_internal(count, true)
+        Self::new_internal(count, WorldKind::Arena { obstacles: true })
     }
 
     pub fn new_open_field(count: u32) -> SimEngine {
-        Self::new_internal(count, false)
+        Self::new_internal(count, WorldKind::Arena { obstacles: false })
     }
 
-    fn new_internal(count: u32, with_obstacles: bool) -> SimEngine {
+    /// Streamed-city world (Phase 3): flat ground only — chunk colliders
+    /// arrive through `load_chunk`/`unload_chunk` as the player moves.
+    pub fn new_city(count: u32) -> SimEngine {
+        Self::new_internal(count, WorldKind::City)
+    }
+
+    fn new_internal(count: u32, kind: WorldKind) -> SimEngine {
         console_error_panic_hook::set_once();
 
         let mut rigid_body_set = RigidBodySet::new();
         let mut collider_set = ColliderSet::new();
 
-        world::build_static_world(&mut rigid_body_set, &mut collider_set, with_obstacles);
+        world::build_static_world(&mut rigid_body_set, &mut collider_set, kind);
 
         let mut vehicle = vehicle::create_vehicle(&mut rigid_body_set, &mut collider_set);
-        if with_obstacles {
+        if kind == (WorldKind::Arena { obstacles: true }) {
             let rotation = Rotation::from_rotation_y(std::f32::consts::PI);
             vehicle.spawn_rotation = rotation;
             if let Some(body) = rigid_body_set.get_mut(vehicle.body_handle) {
@@ -93,8 +103,10 @@ impl SimEngine {
                 paused: false,
                 allow_pause: true,
                 sim_time: 0.0,
+                time_of_day: DAY_START_FRACTION,
             },
             crowd: crowd::spawn_peds(count as usize),
+            chunks: ChunkStore::default(),
         }
     }
 
@@ -107,6 +119,7 @@ impl SimEngine {
 
         let dt = self.integration_parameters.dt;
         self.runtime.sim_time += dt;
+        self.runtime.time_of_day = (self.runtime.time_of_day + dt / DAY_CYCLE_SECONDS).fract();
 
         self.step_vehicle(dt);
         self.update_player(dt);
