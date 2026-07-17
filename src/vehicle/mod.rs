@@ -9,6 +9,26 @@ pub(crate) use spec::VehicleSpec;
 use crate::constants::{CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH};
 use crate::engine::SimEngine;
 
+/// Wheel attach spacing (see `build_vehicle_body`).
+const WHEELBASE: f32 = 2.0 * CAR_HALF_LENGTH * 0.8;
+/// Cornering budget below the yaw floor: allowed turn rate is `this / speed`.
+const MAX_LATERAL_ACCEL: f32 = 30.0;
+/// Arcade floor on the full-lock turn rate: a pure lateral-accel cap makes
+/// the radius grow with v² ("turns like an airplane" at top speed), so full
+/// lock always buys at least this yaw rate regardless of speed. The implied
+/// lateral g at speed is fiction, but the grip assist applies cornering as a
+/// velocity rotation at the center of mass — torque-free — so it stays flat.
+const MIN_FULL_LOCK_TURN_RATE: f32 = 0.9;
+/// How fast the effective steering angle sweeps (rad/s). Full lock arrives in
+/// ~0.15 s — snappy at parking speeds, but a flick reversal at highway speed
+/// is a swing through center, not a one-frame lock-to-lock slam.
+const STEER_SLEW: f32 = 3.0;
+
+/// The turn rate full lock is allowed to command at `speed`.
+fn allowed_turn_rate(speed: f32) -> f32 {
+    (MAX_LATERAL_ACCEL / speed).max(MIN_FULL_LOCK_TURN_RATE)
+}
+
 /// Runtime-mutable driving parameters. Defaults come from the active class in
 /// `data/vehicles.ron`; the dev console can overwrite them live so iterating
 /// on car feel never requires a wasm rebuild (PRD §8.3/§8.6).
@@ -37,6 +57,8 @@ pub(crate) struct VehicleState {
     pub(crate) class_index: usize,
     /// 1.0 = pristine, 0.0 = destroyed (drivetrain dead until reset).
     pub(crate) health: f32,
+    /// Slew-limited effective steering angle actually on the wheels.
+    pub(crate) steer_state: f32,
 }
 
 pub(crate) fn create_vehicle(
@@ -56,6 +78,7 @@ pub(crate) fn create_vehicle(
         classes,
         class_index,
         health: 1.0,
+        steer_state: 0.0,
     }
 }
 
@@ -193,6 +216,54 @@ impl SimEngine {
             steer_angle /= 1.0 + tuning.reverse_stability * -forward_speed;
         }
 
+        // Speed-aware steering: never steer the wheels past the angle whose
+        // kinematic turn rate the lateral-g budget allows at this speed.
+        // Full lock at highway speed is a violent tire-scrub event (the
+        // browser repro: a 74 m/s flick reversal rolled the car to 46°) —
+        // capping the *wheels*, not just the assist's yaw target, keeps the
+        // tires rolling instead of fighting. Full lock remains available at
+        // parking speeds where the cap doesn't bind.
+        let speed = forward_speed.abs();
+        if speed > 0.5 {
+            let kinematic_full = steer_angle.abs() * (1.0 + tuning.rear_steer) * speed / WHEELBASE;
+            let cap = allowed_turn_rate(speed);
+            if kinematic_full > cap {
+                steer_angle *= cap / kinematic_full;
+            }
+        }
+        // Slew limit: the wheels sweep to the requested angle instead of
+        // teleporting — a direction flick passes through center.
+        let max_step = STEER_SLEW * dt;
+        self.vehicle.steer_state +=
+            (steer_angle - self.vehicle.steer_state).clamp(-max_step, max_step);
+        let steer_angle = self.vehicle.steer_state;
+
+        // Anti-wheelie traction control: with the drive axle grounded, the
+        // opposite axle in the air, and the nose rotating away from the road,
+        // sustained thrust torque is what FEEDS the lift — cut it instead of
+        // asking the righting springs to out-muscle the engine (they can't;
+        // the overpowered classes creep into a stable 25-30° wheelie under
+        // accelerate+turn). Wheel contact separates a wheelie from a ramp
+        // climb: on a slope all four wheels stay planted and full power
+        // remains. Uses last frame's raycasts (one frame of lag is nothing
+        // against a wheelie that takes a second to build).
+        if engine_force != 0.0 {
+            let wheels = self.vehicle.controller.wheels();
+            let front =
+                wheels[0].raycast_info().is_in_contact || wheels[1].raycast_info().is_in_contact;
+            let rear =
+                wheels[2].raycast_info().is_in_contact || wheels[3].raycast_info().is_in_contact;
+            let body = &self.rigid_body_set[self.vehicle.body_handle];
+            // Nose attitude in the direction thrust rotates it: forward
+            // drive lifts the nose (+y), reverse drive drops it.
+            let lift = (body.rotation() * Vector::Z).y * engine_force.signum();
+            let lifting_axle_free = if engine_force > 0.0 { !front } else { !rear };
+            let drive_axle_grounded = if engine_force > 0.0 { rear } else { front };
+            if lifting_axle_free && drive_axle_grounded && lift > 0.08 {
+                engine_force *= (1.0 - (lift - 0.08) / 0.12).clamp(0.0, 1.0);
+            }
+        }
+
         // Handbrake drift: while the handbrake is held the rear tires keep
         // only `handbrake_grip` of their grip, so the tail breaks loose and
         // swings instead of the brake just scrubbing speed. Both knobs must
@@ -237,7 +308,7 @@ impl SimEngine {
             QueryFilter::default().exclude_rigid_body(self.vehicle.body_handle),
         );
         self.vehicle.controller.update_vehicle(dt, queries);
-        self.apply_drive_assists(dt, throttle, steer);
+        self.apply_drive_assists(dt, throttle, steer, steer_angle, forward_speed, handbrake);
     }
 
     /// Arcade stability assists, applied as torque impulses on top of the
@@ -245,7 +316,15 @@ impl SimEngine {
     /// anti-flip righting (roll always, pitch only past a deadzone no ramp
     /// reaches), and throttle/steer torque authority while no wheel touches
     /// the ground.
-    fn apply_drive_assists(&mut self, dt: f32, throttle: f32, steer: f32) {
+    fn apply_drive_assists(
+        &mut self,
+        dt: f32,
+        throttle: f32,
+        steer: f32,
+        steer_angle: f32,
+        forward_speed: f32,
+        handbrake: bool,
+    ) {
         let tuning = self.vehicle.tuning;
         let grounded_wheels = self
             .vehicle
@@ -315,6 +394,53 @@ impl SimEngine {
 
         if torque_impulse.length_squared() > 1e-8 {
             body.apply_torque_impulse(torque_impulse, true);
+        }
+
+        // Yaw + grip assist: wheel grip scales with suspension load, so hard
+        // throttle (which unloads the front axle) kills turn-in, and lifting
+        // off snaps the grip — and the yaw rate — right back. Torque-based
+        // correction loses that fight (saturated tires out-torque any sane
+        // spring), so this works at the velocity level, after all torque
+        // impulses above: (a) blend the yaw component of angvel toward the
+        // kinematic turn rate (capped by a lateral-g budget at speed) —
+        // same steer + same speed = same turn, throttle or not; (b) rotate
+        // the momentum vector toward the nose (magnitude preserved — tires
+        // redirecting momentum), so the induced yaw carves an arc instead
+        // of crabbing diagonally on washed-out fronts. Both are off during
+        // handbrake (drifts must stay loose), need a grounded wheel (hard
+        // cornering routinely lifts wheels — the assist must keep holding
+        // the line), and only apply while roughly level: the kinematic
+        // model means nothing mid-wheelie or on a wall, and the anti-flip
+        // springs need those regimes to themselves.
+        const YAW_ASSIST_RATE: f32 = 60.0; // full correction per 60 Hz frame
+        const GRIP_ALIGN_RATE: f32 = 15.0; // 1/s slip-angle decay
+        if !handbrake && grounded_wheels >= 1 && forward_speed.abs() > 0.5 && up.y > 0.8 {
+            // Counter-phase rear steering shortens the effective wheelbase.
+            // steer_angle is already speed-capped and slewed, so this target
+            // stays inside the lateral budget; the clamp is a safety net.
+            let kinematic = steer_angle * (1.0 + tuning.rear_steer) * forward_speed / WHEELBASE;
+            let cap = allowed_turn_rate(forward_speed.abs());
+            let target = kinematic.clamp(-cap, cap);
+            let angvel = body.angvel();
+            let err = target - angvel.dot(up);
+            body.set_angvel(angvel + up * (err * (YAW_ASSIST_RATE * dt).min(1.0)), true);
+
+            let linvel = body.linvel();
+            let v_h = Vector::new(linvel.x, 0.0, linvel.z);
+            let speed_h = v_h.length();
+            let fwd_h = Vector::new(forward.x, 0.0, forward.z);
+            if speed_h > 0.5
+                && let Some(travel_dir) = (fwd_h * forward_speed.signum()).try_normalize()
+            {
+                let dir = v_h / speed_h;
+                // Signed slip angle about +Y from velocity to travel heading.
+                let slip = (dir.z * travel_dir.x - dir.x * travel_dir.z).atan2(dir.dot(travel_dir));
+                let (s, c) = (slip * (GRIP_ALIGN_RATE * dt).min(1.0)).sin_cos();
+                body.set_linvel(
+                    Vector::new(v_h.x * c + v_h.z * s, linvel.y, -v_h.x * s + v_h.z * c),
+                    true,
+                );
+            }
         }
     }
 

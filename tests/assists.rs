@@ -113,10 +113,12 @@ fn default_tuning(index: usize) -> f32 {
 
 #[test]
 fn rear_steer_tightens_the_turn() {
+    // Short spin-up and window: at higher speeds the lateral-g budget caps
+    // both configurations to the same turn rate, hiding the difference.
     let turn = |rear_steer: f32| {
         let mut h = Harness::new(|v| v[REAR_STEER] = rear_steer);
-        h.hold(BTN_FORWARD, 1.0);
-        h.turned_while_holding(BTN_FORWARD | BTN_RIGHT, 1.5).abs()
+        h.hold(BTN_FORWARD, 0.5);
+        h.turned_while_holding(BTN_FORWARD | BTN_RIGHT, 1.0).abs()
     };
 
     let front_only = turn(0.0);
@@ -189,19 +191,75 @@ fn hard_cornering_stays_on_four_wheels() {
         "stock car leaned past ~25 degrees in a flat-out flick: min up_y = {min}"
     );
 
-    // 2.7x-overpowered engine + full rear steer can ride a launch wheelie on
-    // the short chassis; the anti-flip spring must pull it back to level,
-    // and without the assist it stays pitched — proving the assist itself.
-    let (_, assisted_final) = overpowered_flick(default_tuning(ANTI_ROLL));
-    let (_, unassisted_final) = overpowered_flick(0.0);
+    // 2.7x-overpowered engine + full rear steer used to ride a launch wheelie
+    // on the short chassis. Stability is now a stack (speed-capped steering +
+    // anti-wheelie traction control + righting springs) — since the capped
+    // steering alone keeps even the anti_roll=0 run level, there is no
+    // meaningful disabled-control here; the spring itself is proven by
+    // `anti_roll_rights_a_flipped_car`. Assert the outcome for both.
+    let (assisted_min, assisted_final) = overpowered_flick(default_tuning(ANTI_ROLL));
     assert!(
-        assisted_final > 0.9,
-        "assist failed to recover the overpowered flick to level: up_y = {assisted_final}"
+        assisted_final > 0.9 && assisted_min > 0.75,
+        "overpowered flick unstable: min up_y = {assisted_min}, final = {assisted_final}"
     );
+}
+
+#[test]
+fn lift_off_does_not_snap_the_turn() {
+    // Wheel grip scales with suspension load, so full throttle unloads the
+    // front axle and kills turn-in; releasing W used to snap the yaw rate to
+    // ~1.6-1.9x in the same breath. The yaw-rate assist holds the turn rate
+    // continuous across the throttle release.
+    let mut h = Harness::new(|_| {});
+    // Start against the -Z wall so the whole run fits inside the arena.
+    h.engine.teleport_car(0.0, 1.0, -50.0);
+    h.step_seconds(0.5);
+    h.hold(BTN_FORWARD, 2.0);
+    let on = (h.turned_while_holding(BTN_FORWARD | BTN_RIGHT, 0.75) / 0.75).abs();
+    let off = (h.turned_while_holding(BTN_RIGHT, 0.3) / 0.3).abs();
+    assert!(on > 0.5, "car barely turns under throttle: {on} rad/s");
     assert!(
-        unassisted_final < 0.75,
-        "control run invalid — overpowered flick stayed level without the assist: up_y = {unassisted_final}"
+        off < on * 1.35,
+        "yaw rate snapped on throttle release: {on} rad/s with W vs {off} rad/s just after"
     );
+}
+
+#[test]
+fn full_power_cornering_keeps_the_nose_down() {
+    // Accelerate + turn used to creep the overpowered classes into a stable
+    // 25-30° wheelie (cornering unloads the inner front, thrust torque does
+    // the rest). The anti-wheelie traction control cuts engine force once
+    // the front axle leaves the ground nose-high, which caps the lift at a
+    // transient power-stance (~10°) for every class.
+    for class in 0..3u32 {
+        let mut engine = SimEngine::new_open_field(0);
+        engine.set_vehicle_class(class);
+        let mut buf = vec![0.0; engine.state_len()];
+        for _ in 0..HZ {
+            engine.step();
+        }
+        engine.toggle_enter();
+        engine.teleport_car(0.0, 1.0, -50.0);
+        for _ in 0..30 {
+            engine.step();
+        }
+        engine.set_input_buttons(BTN_FORWARD, 0.0);
+        for _ in 0..HZ {
+            engine.step();
+        }
+        engine.set_input_buttons(BTN_FORWARD | BTN_RIGHT, 0.0);
+        let mut max_lift = 0.0f32;
+        for _ in 0..(4 * HZ) {
+            engine.step();
+            engine.write_state(&mut buf);
+            let (x, y, z, w) = (buf[3], buf[4], buf[5], buf[6]);
+            max_lift = max_lift.max(2.0 * (y * z - w * x));
+        }
+        assert!(
+            max_lift < 0.25,
+            "class {class} wheelied while cornering under power: forward_y = {max_lift}"
+        );
+    }
 }
 
 #[test]
