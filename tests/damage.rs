@@ -87,10 +87,11 @@ fn harder_crashes_hurt_more() {
 fn clean_driving_keeps_the_car_pristine() {
     // Hard acceleration, a full-lock turn, and engine braking to a stop —
     // none of it touches the chassis, so none of it should cost health.
-    // Start against the -Z wall: flat out the car covers ~50 m in 2 s.
+    // Start against the -Z wall; keep the run short enough that the wide
+    // lateral-g-capped arc at speed stays inside the arena walls.
     let mut h = Harness::new();
     h.engine.teleport_car(0.0, 1.5, -50.0);
-    h.hold(BTN_FORWARD, 2.0);
+    h.hold(BTN_FORWARD, 1.5);
     h.hold(BTN_FORWARD | BTN_RIGHT, 1.5);
     h.hold(0, 1.5);
     let health = h.health();
