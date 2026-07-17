@@ -4,7 +4,14 @@
 //! wall.
 
 use sim::SimEngine;
-use sim::constants::{BTN_FORWARD, PLAYER_RUN_SPEED, PLAYER_STATE_OFFSET, WORLD_HALF};
+use sim::constants::{
+    BTN_FORWARD, CAR_HALF_WIDTH, PLAYER_RUN_SPEED, PLAYER_STATE_OFFSET, WORLD_HALF,
+};
+
+/// Park distance that presses the wall-side door INTO the wall (the door
+/// probe sits ~0.6 m off the flank), so the exit fallback is exercised
+/// regardless of how wide the chassis is.
+const WALL_PARK: f32 = WORLD_HALF - CAR_HALF_WIDTH - 0.55;
 
 const HZ: usize = 60;
 const DT: f32 = 1.0 / 60.0;
@@ -147,13 +154,13 @@ fn wall_exit_x(car_x: f32) -> (f32, f32) {
 /// exercises the fallback, not just the happy path.
 #[test]
 fn exit_avoids_the_wall() {
-    let (px, cx) = wall_exit_x(WORLD_HALF - 2.2);
+    let (px, cx) = wall_exit_x(WALL_PARK);
     assert!(
         px < cx - 1.0 && px < WORLD_HALF - 0.35,
         "+X wall: ejected into/toward the wall (player x {px}, car x {cx})"
     );
 
-    let (px, cx) = wall_exit_x(-(WORLD_HALF - 2.2));
+    let (px, cx) = wall_exit_x(-WALL_PARK);
     assert!(
         px > cx + 1.0 && px > -(WORLD_HALF - 0.35),
         "-X wall: ejected into/toward the wall (player x {px}, car x {cx})"

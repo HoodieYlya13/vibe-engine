@@ -1,32 +1,52 @@
 use rapier3d::prelude::*;
 
 use crate::constants::{
-    BLOCKS, CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, PLAYER_FOOT_RADIUS,
-    PLAYER_STAND_HEIGHT, RAMPS, WORLD_HALF,
+    BLOCKS, CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, CITY_GROUND_HALF,
+    PLAYER_FOOT_RADIUS, PLAYER_STAND_HEIGHT, RAMPS, WORLD_HALF,
 };
 use crate::engine::SimEngine;
+use crate::world::WorldKind;
 
 const PED_CENTER_HEIGHT: f32 = 0.8;
+/// Scatter radius in the city: covers the built kit grid (streets reach
+/// ±168 m) without stranding peds on empty ground beyond it.
+const CITY_PED_SPREAD: f32 = 170.0;
+/// Keep the spawn point itself clear so the player never boots inside a ped.
+const SPAWN_KEEPOUT: f32 = 10.0;
+const GOLDEN_ANGLE: f32 = 2.399_963;
 
 pub(crate) struct CrowdState {
     pub(crate) ped_positions: Vec<Vector>,
+    /// Wander clamp: arena walls or the city ground extent.
+    bound: f32,
+    /// The static BLOCKS/RAMPS only exist in the obstacle arena.
+    arena_obstacles: bool,
 }
 
-pub(crate) fn spawn_peds(count: usize) -> CrowdState {
+pub(crate) fn spawn_peds(count: usize, kind: WorldKind) -> CrowdState {
+    let (spread, bound, arena_obstacles) = match kind {
+        WorldKind::Arena { obstacles } => (WORLD_HALF - 2.0, WORLD_HALF, obstacles),
+        WorldKind::City => (CITY_PED_SPREAD, CITY_GROUND_HALF, false),
+    };
+    // Deterministic sunflower scatter (golden-angle spiral): even coverage
+    // with no grid rows, so the placeholder crowd reads as ambient street
+    // life instead of a phalanx at the origin.
     let mut ped_positions = Vec::with_capacity(count);
-    let cols = (count as f32).sqrt().ceil() as usize;
-    let spacing = 2.5;
-    let half = cols as f32 * 0.5;
     for i in 0..count {
-        let x = (i % cols) as f32;
-        let z = (i / cols) as f32;
+        let t = (i as f32 + 0.5) / count.max(1) as f32;
+        let r = SPAWN_KEEPOUT + (spread - SPAWN_KEEPOUT).max(0.0) * t.sqrt();
+        let theta = i as f32 * GOLDEN_ANGLE;
         ped_positions.push(Vector::new(
-            (x - half) * spacing,
+            r * theta.cos(),
             PED_CENTER_HEIGHT,
-            (z - half) * spacing,
+            r * theta.sin(),
         ));
     }
-    CrowdState { ped_positions }
+    CrowdState {
+        ped_positions,
+        bound,
+        arena_obstacles,
+    }
 }
 
 impl SimEngine {
@@ -35,7 +55,8 @@ impl SimEngine {
             return;
         }
 
-        let world_half = WORLD_HALF;
+        let world_half = self.crowd.bound;
+        let arena_obstacles = self.crowd.arena_obstacles;
         let car_body = &self.rigid_body_set[self.vehicle.body_handle];
         let car_pos = car_body.translation();
         let player_pos = self.player.pos;
@@ -82,8 +103,11 @@ impl SimEngine {
 
             let speed = 0.8 + (i % 7) as f32 * 0.1;
             *pos += dir * speed * dt;
-            Self::resolve_agent_block_collision(pos, ped_radius);
-            let ramp_ground = Self::resolve_agent_ramp_collision(pos, ped_radius);
+            let mut ramp_ground = 0.0;
+            if arena_obstacles {
+                Self::resolve_agent_block_collision(pos, ped_radius);
+                ramp_ground = Self::resolve_agent_ramp_collision(pos, ped_radius);
+            }
             pos.y = PED_CENTER_HEIGHT + ramp_ground;
 
             let limit = world_half - ped_radius;

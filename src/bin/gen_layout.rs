@@ -57,6 +57,8 @@ fn main() {
     c("HUD_STATE_OFFSET", HUD_STATE_OFFSET);
     c("CAM_STATE_FLOATS", CAM_STATE_FLOATS);
     c("CAM_STATE_OFFSET", CAM_STATE_OFFSET);
+    c("ENV_STATE_FLOATS", ENV_STATE_FLOATS);
+    c("ENV_STATE_OFFSET", ENV_STATE_OFFSET);
     c("PED_STATE_OFFSET", PED_STATE_OFFSET);
     c("PED_STATE_STRIDE", PED_STATE_STRIDE);
     c("STATE_HEADER_INTS", STATE_HEADER_INTS);
@@ -67,6 +69,17 @@ fn main() {
 
     c("BLOCK_STATE_STRIDE", BLOCK_STATE_STRIDE);
     c("RAMP_STATE_STRIDE", RAMP_STATE_STRIDE);
+
+    let mut f = |name: &str, value: f32| {
+        writeln!(out, "export const {name} = {value};").unwrap();
+    };
+    f("CAR_HALF_WIDTH", CAR_HALF_WIDTH);
+    f("CAR_HALF_HEIGHT", CAR_HALF_HEIGHT);
+    f("CAR_HALF_LENGTH", CAR_HALF_LENGTH);
+    f("CHUNK_SIZE", CHUNK_SIZE);
+    f("CITY_GROUND_HALF", CITY_GROUND_HALF);
+    f("DAY_CYCLE_SECONDS", DAY_CYCLE_SECONDS);
+    f("DAY_START_FRACTION", DAY_START_FRACTION);
 
     // Vehicle tuning lives in data/vehicles.ron per class; the dev console
     // seeds its sliders from the live sim (SimEngine::vehicle_tuning), so

@@ -160,6 +160,17 @@ impl SimEngine {
         self.damage_vehicle(amount);
     }
 
+    /// Pins the day/night clock (dev console / mission scripts). Takes a
+    /// cycle fraction 0..1 (0 = midnight, 0.5 = noon); the clock keeps
+    /// running from there.
+    pub fn set_time_of_day(&mut self, fraction: f32) {
+        self.runtime.time_of_day = fraction.rem_euclid(1.0);
+    }
+
+    pub fn time_of_day(&self) -> f32 {
+        self.runtime.time_of_day
+    }
+
     /// Drops the car onto its side at its current position — dev tool for
     /// exercising the anti-roll self-righting assist.
     pub fn flip_car(&mut self) {

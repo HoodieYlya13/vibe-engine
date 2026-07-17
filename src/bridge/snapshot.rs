@@ -1,8 +1,9 @@
 use wasm_bindgen::prelude::*;
 
 use crate::constants::{
-    CAM_STATE_OFFSET, CAR_HEALTH_OFFSET, ENTER_RADIUS, HUD_HINT_ENTER, HUD_HINT_EXIT,
-    HUD_HINT_NONE, HUD_STATE_OFFSET, PED_STATE_OFFSET, PED_STATE_STRIDE, PLAYER_STATE_OFFSET,
+    CAM_STATE_OFFSET, CAR_HEALTH_OFFSET, ENTER_RADIUS, ENV_STATE_OFFSET, HUD_HINT_ENTER,
+    HUD_HINT_EXIT, HUD_HINT_NONE, HUD_STATE_OFFSET, PED_STATE_OFFSET, PED_STATE_STRIDE,
+    PLAYER_STATE_OFFSET,
 };
 use crate::engine::SimEngine;
 
@@ -58,6 +59,8 @@ impl SimEngine {
         out[cam_offset + 1] = target.y + target_y;
         out[cam_offset + 2] = target.z;
         out[cam_offset + 3] = radius;
+
+        out[ENV_STATE_OFFSET as usize] = self.runtime.time_of_day;
 
         let mut cursor = PED_STATE_OFFSET as usize;
         for pos in &self.crowd.ped_positions {
