@@ -152,15 +152,31 @@ fn reverse_stability_calms_reverse_steering() {
     );
 }
 
-#[test]
-fn hard_cornering_stays_on_four_wheels() {
-    // Overpowered engine + full rear steer + a hard flick is the flip recipe;
-    // the lowered center of mass alone must keep this nearly flat.
+/// Overpowered flick recipe: launch hard, then flick right while flat out.
+/// Returns (min up_y during the flick, up_y at the end of it).
+fn overpowered_flick(anti_roll: f32) -> (f32, f32) {
     let mut h = Harness::new(|v| {
         v[ENGINE_FORCE] = 14000.0;
         v[REAR_STEER] = 1.0;
-        v[ANTI_ROLL] = 0.0;
+        v[ANTI_ROLL] = anti_roll;
     });
+    h.hold(BTN_FORWARD, 2.5);
+    h.engine.set_input_buttons(BTN_FORWARD | BTN_RIGHT, 0.0);
+    let mut min = h.up_y();
+    for _ in 0..(2 * HZ) {
+        h.engine.step();
+        min = min.min(h.up_y());
+    }
+    (min, h.up_y())
+}
+
+#[test]
+fn hard_cornering_stays_on_four_wheels() {
+    // Stock tuning: a flat-out flick in a shipping class must stay flat,
+    // period. (Since the collider shrank to the visual envelope — short
+    // wheelbase, light pitch inertia — this is the anti-flip assists' job,
+    // no longer pure chassis geometry.)
+    let mut h = Harness::new(|_| {});
     h.hold(BTN_FORWARD, 2.5);
     h.engine.set_input_buttons(BTN_FORWARD | BTN_RIGHT, 0.0);
     let mut min = h.up_y();
@@ -170,7 +186,21 @@ fn hard_cornering_stays_on_four_wheels() {
     }
     assert!(
         min > 0.9,
-        "car leaned past ~25 degrees in a flat-out flick: min up_y = {min}"
+        "stock car leaned past ~25 degrees in a flat-out flick: min up_y = {min}"
+    );
+
+    // 2.7x-overpowered engine + full rear steer can ride a launch wheelie on
+    // the short chassis; the anti-flip spring must pull it back to level,
+    // and without the assist it stays pitched — proving the assist itself.
+    let (_, assisted_final) = overpowered_flick(default_tuning(ANTI_ROLL));
+    let (_, unassisted_final) = overpowered_flick(0.0);
+    assert!(
+        assisted_final > 0.9,
+        "assist failed to recover the overpowered flick to level: up_y = {assisted_final}"
+    );
+    assert!(
+        unassisted_final < 0.75,
+        "control run invalid — overpowered flick stayed level without the assist: up_y = {unassisted_final}"
     );
 }
 

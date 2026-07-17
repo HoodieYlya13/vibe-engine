@@ -105,7 +105,7 @@ impl SimEngine {
                 sim_time: 0.0,
                 time_of_day: DAY_START_FRACTION,
             },
-            crowd: crowd::spawn_peds(count as usize),
+            crowd: crowd::spawn_peds(count as usize, kind),
             chunks: ChunkStore::default(),
         }
     }

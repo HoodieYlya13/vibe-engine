@@ -242,8 +242,9 @@ impl SimEngine {
 
     /// Arcade stability assists, applied as torque impulses on top of the
     /// wheel forces. Each one is a tunable in `VehicleTuning` (0 disables):
-    /// roll-only anti-flip righting, and throttle/steer torque authority
-    /// while no wheel touches the ground.
+    /// anti-flip righting (roll always, pitch only past a deadzone no ramp
+    /// reaches), and throttle/steer torque authority while no wheel touches
+    /// the ground.
     fn apply_drive_assists(&mut self, dt: f32, throttle: f32, steer: f32) {
         let tuning = self.vehicle.tuning;
         let grounded_wheels = self
@@ -272,6 +273,34 @@ impl SimEngine {
                 let spring = roll.clamp(-0.8, 0.8) * tuning.anti_roll;
                 let damping = roll_rate * tuning.anti_roll * 0.2;
                 torque_impulse += forward * ((spring - damping) * dt);
+            }
+        }
+
+        // Anti-wheelie/stoppie. The visual-envelope chassis (short wheelbase,
+        // light pitch inertia) can ride a stable wheelie under an overpowered
+        // launch, and the roll-only spring can't touch that. Two bands, both
+        // grounded-gated (in full flight air control keeps pitch authority):
+        // pitch-RATE damping once pitch leaves the flat-driving band — it
+        // kills the rotation a wheelie/stoppie needs to form, but stays out
+        // of normal suspension motion (an always-on damper resonates with
+        // the truck's suspension and pumps it airborne) — plus a righting
+        // spring beyond a deadzone steeper than any drivable ramp, so
+        // legitimate slope pitch is never fought.
+        const PITCH_DAMP_START: f32 = 0.15;
+        const PITCH_DEADZONE: f32 = 0.45;
+        if tuning.anti_roll > 0.0 && grounded_wheels > 0 {
+            let right = rotation * Vector::X;
+            let pitch = up.cross(Vector::Y).dot(right).atan2(up.y);
+            let pitch_rate = angvel.dot(right);
+            if pitch.abs() > PITCH_DAMP_START {
+                let mut pitch_torque = -pitch_rate * tuning.anti_roll * 0.3;
+                let excess = pitch.abs() - PITCH_DEADZONE;
+                if excess > 0.0 {
+                    // 3x the roll gain: it must out-muscle sustained thrust
+                    // torque, not just settle a transient.
+                    pitch_torque += (excess.min(0.8) * pitch.signum()) * tuning.anti_roll * 3.0;
+                }
+                torque_impulse += right * (pitch_torque * dt);
             }
         }
 

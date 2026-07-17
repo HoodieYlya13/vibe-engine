@@ -3,7 +3,7 @@
 //! chassis) — world geometry exists exactly once.
 
 use sim::SimEngine;
-use sim::constants::{BTN_FORWARD, BTN_RUN, PLAYER_STATE_OFFSET, WORLD_HALF};
+use sim::constants::{BTN_FORWARD, BTN_RUN, CAR_HALF_WIDTH, PLAYER_STATE_OFFSET, WORLD_HALF};
 
 const HZ: usize = 60;
 
@@ -174,8 +174,9 @@ fn parked_car_blocks_player() {
     h.hold_look(BTN_FORWARD, -std::f32::consts::FRAC_PI_2, 2.0);
 
     let (x, _, _) = h.player_pos();
+    // Blocked at the chassis face: half-width + most of the capsule radius.
     assert!(
-        x > 1.5,
+        x > CAR_HALF_WIDTH + 0.25,
         "player walked through the parked car chassis: x = {x}"
     );
 }

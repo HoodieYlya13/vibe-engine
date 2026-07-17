@@ -73,6 +73,9 @@ fn main() {
     let mut f = |name: &str, value: f32| {
         writeln!(out, "export const {name} = {value};").unwrap();
     };
+    f("CAR_HALF_WIDTH", CAR_HALF_WIDTH);
+    f("CAR_HALF_HEIGHT", CAR_HALF_HEIGHT);
+    f("CAR_HALF_LENGTH", CAR_HALF_LENGTH);
     f("CHUNK_SIZE", CHUNK_SIZE);
     f("CITY_GROUND_HALF", CITY_GROUND_HALF);
     f("DAY_CYCLE_SECONDS", DAY_CYCLE_SECONDS);

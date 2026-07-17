@@ -65,7 +65,8 @@ src/
                    (embedded at build)
   character/     — kinematic character controller (player) + car entry/exit
                    (walk-to-door on enter, capsule-probed free-spot exit)
-  crowd/         — decorative ped simulation (Phase 4 rewrites this)
+  crowd/         — decorative ped simulation: golden-angle scatter spawn,
+                   world-kind-aware bounds (Phase 4 rewrites this)
 ```
 
 ## 🎯 Architecture
