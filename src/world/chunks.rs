@@ -41,8 +41,10 @@ impl SimEngine {
         self.chunks.loaded.insert((cx, cz), handle);
     }
 
-    /// Stream a chunk back out, freeing its body and every collider on it.
+    /// Stream a chunk back out, freeing its body and every collider on it,
+    /// plus its lanes and any traffic riding them.
     pub fn unload_chunk(&mut self, cx: i32, cz: i32) {
+        self.unload_chunk_traffic(cx, cz);
         let Some(handle) = self.chunks.loaded.remove(&(cx, cz)) else {
             return;
         };

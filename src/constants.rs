@@ -81,12 +81,18 @@ pub const HUD_STATE_FLOATS: u32 = 1;
 pub const CAM_STATE_FLOATS: u32 = 4;
 /// Environment block: [time_of_day 0..1) — 0 = midnight, 0.5 = noon.
 pub const ENV_STATE_FLOATS: u32 = 1;
+/// Ambient rail-traffic pool (Phase 4): fixed slot count so the snapshot
+/// layout is static; inactive slots write active = 0.
+pub const MAX_TRAFFIC: u32 = 12;
+/// Per traffic car: [active, x, y, z, qx, qy, qz, qw].
+pub const TRAFFIC_STATE_STRIDE: u32 = 8;
 pub const PED_STATE_STRIDE: u32 = 16;
 pub const PLAYER_STATE_OFFSET: u32 = CAR_STATE_FLOATS;
 pub const HUD_STATE_OFFSET: u32 = PLAYER_STATE_OFFSET + PLAYER_STATE_FLOATS;
 pub const CAM_STATE_OFFSET: u32 = HUD_STATE_OFFSET + HUD_STATE_FLOATS;
 pub const ENV_STATE_OFFSET: u32 = CAM_STATE_OFFSET + CAM_STATE_FLOATS;
-pub const PED_STATE_OFFSET: u32 = ENV_STATE_OFFSET + ENV_STATE_FLOATS;
+pub const TRAFFIC_STATE_OFFSET: u32 = ENV_STATE_OFFSET + ENV_STATE_FLOATS;
+pub const PED_STATE_OFFSET: u32 = TRAFFIC_STATE_OFFSET + MAX_TRAFFIC * TRAFFIC_STATE_STRIDE;
 
 /// One full day/night cycle in real seconds (24 game-min, PRD §6).
 pub const DAY_CYCLE_SECONDS: f32 = 1440.0;

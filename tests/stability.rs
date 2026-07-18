@@ -69,12 +69,12 @@ fn top_speed_cornering_stays_level() {
         let (max_lift, min_up) =
             worst_attitude(&mut engine, &mut buf, BTN_FORWARD | BTN_RIGHT, 3.0);
         assert!(
-            max_lift < 0.25,
-            "class {class} wheelied cornering at top speed: fwd_y {max_lift}"
+            max_lift < 0.15,
+            "class {class} lifted the nose cornering at top speed: fwd_y {max_lift}"
         );
         assert!(
-            min_up > 0.85,
-            "class {class} leaned past ~30° cornering at top speed: up_y {min_up}"
+            min_up > 0.95,
+            "class {class} leaned hard cornering at top speed: up_y {min_up}"
         );
     }
 }
@@ -93,11 +93,11 @@ fn top_speed_flick_reversal_stays_level() {
         }
         let (max_lift, min_up) = worst_attitude(&mut engine, &mut buf, BTN_FORWARD | BTN_LEFT, 2.0);
         assert!(
-            max_lift < 0.25,
-            "class {class} wheelied on a top-speed flick reversal: fwd_y {max_lift}"
+            max_lift < 0.15,
+            "class {class} lifted the nose on a top-speed flick reversal: fwd_y {max_lift}"
         );
         assert!(
-            min_up > 0.85,
+            min_up > 0.95,
             "class {class} nearly rolled on a top-speed flick reversal: up_y {min_up}"
         );
     }

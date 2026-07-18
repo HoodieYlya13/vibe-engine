@@ -5,6 +5,7 @@ use crate::bridge::input::InputState;
 use crate::character::{self, PlayerState};
 use crate::constants::{DAY_CYCLE_SECONDS, DAY_START_FRACTION, DEFAULT_PED_COUNT};
 use crate::crowd::{self, CrowdState};
+use crate::traffic::TrafficState;
 use crate::vehicle::{self, VehicleState};
 use crate::world::{self, ChunkStore, WorldKind};
 
@@ -36,6 +37,7 @@ pub struct SimEngine {
     pub(crate) runtime: RuntimeState,
     pub(crate) crowd: CrowdState,
     pub(crate) chunks: ChunkStore,
+    pub(crate) traffic: TrafficState,
 }
 
 impl Default for SimEngine {
@@ -107,6 +109,7 @@ impl SimEngine {
             },
             crowd: crowd::spawn_peds(count as usize, kind),
             chunks: ChunkStore::default(),
+            traffic: TrafficState::default(),
         }
     }
 
@@ -122,6 +125,7 @@ impl SimEngine {
         self.runtime.time_of_day = (self.runtime.time_of_day + dt / DAY_CYCLE_SECONDS).fract();
 
         self.step_vehicle(dt);
+        self.update_traffic(dt);
         self.update_player(dt);
         self.update_pedestrians(dt);
 

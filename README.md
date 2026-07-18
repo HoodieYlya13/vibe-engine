@@ -32,7 +32,7 @@ The crate also builds natively (`rlib`), so the deterministic replay tests run a
 cargo test
 ```
 
-These drive the vehicle (`tests/drive.rs`: drive, brake-to-reverse, handbrake, steering, sleep/wake), the on-foot player (`tests/walk.rs`: walk, run, walls, jump, ramp, car-chassis blocking), the handling assists (`tests/assists.rs`: rear-steer drift, reverse steering damping, flip prevention/self-righting, airborne control, handbrake tail-out slip — each compared against its disabled variant — plus lift-off yaw continuity), the vehicle classes (`tests/classes.rs`: data-file parse, tuning round-trip, per-class acceleration ordering, pose-preserving class switch), the impact-damage model (`tests/damage.rs`: damage scales with crash speed, clean driving costs nothing, zero health kills the drivetrain with the explosion pop, reset repairs), car entry/exit (`tests/enter_exit.rs`: walk-to-door instead of teleporting, proximity gating, input cancels the walk, exits pick a free spot even parked against a wall), chunk streaming (`tests/chunks.rs`: load/unload balance, streamed walls block the car, unloading frees the path, determinism across mid-run streaming), high-speed stability (`tests/stability.rs`: top-speed cornering and flick reversals stay level in the wall-less city world, all classes), and the day/night clock (`tests/time.rs`: advance rate, midnight wrap, pin + normalize, pause halts) through scripted input sequences and assert on the resulting positions, plus bitwise determinism checks. They are the regression guard for physics changes — run them before pushing.
+These drive the vehicle (`tests/drive.rs`: drive, brake-to-reverse, handbrake, steering, sleep/wake), the on-foot player (`tests/walk.rs`: walk, run, walls, jump, ramp, car-chassis blocking), the handling assists (`tests/assists.rs`: rear-steer drift, reverse steering damping, flip prevention/self-righting, airborne control, handbrake tail-out slip — each compared against its disabled variant — plus lift-off yaw continuity), the vehicle classes (`tests/classes.rs`: data-file parse, tuning round-trip, per-class acceleration ordering, pose-preserving class switch), the impact-damage model (`tests/damage.rs`: damage scales with crash speed, clean driving costs nothing, zero health kills the drivetrain with the explosion pop, reset repairs), car entry/exit (`tests/enter_exit.rs`: walk-to-door instead of teleporting, proximity gating, input cancels the walk, exits pick a free spot even parked against a wall), chunk streaming (`tests/chunks.rs`: load/unload balance, streamed walls block the car, unloading frees the path, determinism across mid-run streaming), ambient traffic (`tests/traffic.rs`: lane spawn + follow, queueing behind the parked player car without touching it, ram → dynamic conversion with bounded damage, chunk unload despawns, determinism), high-speed stability (`tests/stability.rs`: top-speed cornering and flick reversals stay level in the wall-less city world, all classes), and the day/night clock (`tests/time.rs`: advance rate, midnight wrap, pin + normalize, pause halts) through scripted input sequences and assert on the resulting positions, plus bitwise determinism checks. They are the regression guard for physics changes — run them before pushing.
 
 CI runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` on every push.
 
@@ -58,6 +58,7 @@ src/
                    colliders via load_chunk/unload_chunk)
   vehicle/       — ray-cast vehicle controller + runtime VehicleTuning
                    (incl. arcade assists: anti-roll/anti-wheelie righting,
+                   surface-relative anti-wheelie traction control,
                    rear steer, reverse steer scaling, airborne control,
                    handbrake rear-grip cut for drifting, and a yaw-rate
                    assist that keeps turn response consistent on and off
@@ -67,6 +68,12 @@ src/
                    (embedded at build)
   character/     — kinematic character controller (player) + car entry/exit
                    (walk-to-door on enter, capsule-probed free-spot exit)
+  traffic/       — ambient rail traffic (Phase 4): kinematic cars riding the
+                   per-chunk lane polylines (street-speed cruise, gap-keeping
+                   behind anything ahead, intersection continuation onto the
+                   nearest onward lane) that convert to plain dynamic bodies
+                   when the player car is about to hit them
+                   ("dynamic conversion" — a crash is a shove, not a wall)
   crowd/         — decorative ped simulation: golden-angle scatter spawn,
                    world-kind-aware bounds (Phase 4 rewrites this)
 ```

@@ -238,29 +238,43 @@ impl SimEngine {
             (steer_angle - self.vehicle.steer_state).clamp(-max_step, max_step);
         let steer_angle = self.vehicle.steer_state;
 
-        // Anti-wheelie traction control: with the drive axle grounded, the
-        // opposite axle in the air, and the nose rotating away from the road,
-        // sustained thrust torque is what FEEDS the lift — cut it instead of
-        // asking the righting springs to out-muscle the engine (they can't;
-        // the overpowered classes creep into a stable 25-30° wheelie under
-        // accelerate+turn). Wheel contact separates a wheelie from a ramp
-        // climb: on a slope all four wheels stay planted and full power
-        // remains. Uses last frame's raycasts (one frame of lag is nothing
-        // against a wheelie that takes a second to build).
+        // Anti-wheelie traction control: when the nose rises away from the
+        // ROAD SURFACE, sustained thrust torque is what FEEDS the lift — cut
+        // it instead of asking the righting springs to out-muscle the engine
+        // (they can't; the overpowered classes creep into a stable 25-30°
+        // wheelie under accelerate+turn). Lift is measured against the
+        // averaged wheel-contact normal, not world up, so a ramp climb (nose
+        // high but parallel to the slope) keeps full power even if a wheel
+        // skips. The axle-planted gate keeps ordinary launch squat (both
+        // lifted-axle wheels still touching) at full power; a fast corner
+        // that floats the inner front does trip it — which is exactly the
+        // regime that used to creep into a lift. Uses last frame's raycasts
+        // (one frame of lag is nothing against a wheelie taking a second to
+        // build).
         if engine_force != 0.0 {
             let wheels = self.vehicle.controller.wheels();
-            let front =
-                wheels[0].raycast_info().is_in_contact || wheels[1].raycast_info().is_in_contact;
-            let rear =
-                wheels[2].raycast_info().is_in_contact || wheels[3].raycast_info().is_in_contact;
-            let body = &self.rigid_body_set[self.vehicle.body_handle];
-            // Nose attitude in the direction thrust rotates it: forward
-            // drive lifts the nose (+y), reverse drive drops it.
-            let lift = (body.rotation() * Vector::Z).y * engine_force.signum();
-            let lifting_axle_free = if engine_force > 0.0 { !front } else { !rear };
-            let drive_axle_grounded = if engine_force > 0.0 { rear } else { front };
-            if lifting_axle_free && drive_axle_grounded && lift > 0.08 {
-                engine_force *= (1.0 - (lift - 0.08) / 0.12).clamp(0.0, 1.0);
+            let planted = |i: usize| wheels[i].raycast_info().is_in_contact;
+            // The axle thrust lifts: front under forward drive, rear in reverse.
+            let lifting_axle_planted = if engine_force > 0.0 {
+                planted(0) && planted(1)
+            } else {
+                planted(2) && planted(3)
+            };
+            if !lifting_axle_planted {
+                let mut normal = Vector::ZERO;
+                for wheel in wheels {
+                    let info = wheel.raycast_info();
+                    if info.is_in_contact {
+                        normal += info.contact_normal_ws;
+                    }
+                }
+                if let Some(normal) = normal.try_normalize() {
+                    let body = &self.rigid_body_set[self.vehicle.body_handle];
+                    let lift = (body.rotation() * Vector::Z).dot(normal) * engine_force.signum();
+                    if lift > 0.04 {
+                        engine_force *= (1.0 - (lift - 0.04) / 0.06).clamp(0.0, 1.0);
+                    }
+                }
             }
         }
 
@@ -365,7 +379,7 @@ impl SimEngine {
         // the truck's suspension and pumps it airborne) — plus a righting
         // spring beyond a deadzone steeper than any drivable ramp, so
         // legitimate slope pitch is never fought.
-        const PITCH_DAMP_START: f32 = 0.15;
+        const PITCH_DAMP_START: f32 = 0.08;
         const PITCH_DEADZONE: f32 = 0.45;
         if tuning.anti_roll > 0.0 && grounded_wheels > 0 {
             let right = rotation * Vector::X;

@@ -2,8 +2,8 @@ use wasm_bindgen::prelude::*;
 
 use crate::constants::{
     CAM_STATE_OFFSET, CAR_HEALTH_OFFSET, ENTER_RADIUS, ENV_STATE_OFFSET, HUD_HINT_ENTER,
-    HUD_HINT_EXIT, HUD_HINT_NONE, HUD_STATE_OFFSET, PED_STATE_OFFSET, PED_STATE_STRIDE,
-    PLAYER_STATE_OFFSET,
+    HUD_HINT_EXIT, HUD_HINT_NONE, HUD_STATE_OFFSET, MAX_TRAFFIC, PED_STATE_OFFSET,
+    PED_STATE_STRIDE, PLAYER_STATE_OFFSET, TRAFFIC_STATE_OFFSET, TRAFFIC_STATE_STRIDE,
 };
 use crate::engine::SimEngine;
 
@@ -61,6 +61,23 @@ impl SimEngine {
         out[cam_offset + 3] = radius;
 
         out[ENV_STATE_OFFSET as usize] = self.runtime.time_of_day;
+
+        for i in 0..MAX_TRAFFIC as usize {
+            let cursor = TRAFFIC_STATE_OFFSET as usize + i * TRAFFIC_STATE_STRIDE as usize;
+            match self.traffic_slot_pose(i) {
+                Some((pos, rot)) => {
+                    out[cursor] = 1.0;
+                    out[cursor + 1] = pos.x;
+                    out[cursor + 2] = pos.y;
+                    out[cursor + 3] = pos.z;
+                    out[cursor + 4] = rot.x;
+                    out[cursor + 5] = rot.y;
+                    out[cursor + 6] = rot.z;
+                    out[cursor + 7] = rot.w;
+                }
+                None => out[cursor] = 0.0,
+            }
+        }
 
         let mut cursor = PED_STATE_OFFSET as usize;
         for pos in &self.crowd.ped_positions {

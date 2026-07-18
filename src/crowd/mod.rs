@@ -57,6 +57,7 @@ impl SimEngine {
 
         let world_half = self.crowd.bound;
         let arena_obstacles = self.crowd.arena_obstacles;
+        let traffic_positions = self.traffic_positions();
         let car_body = &self.rigid_body_set[self.vehicle.body_handle];
         let car_pos = car_body.translation();
         let player_pos = self.player.pos;
@@ -99,6 +100,19 @@ impl SimEngine {
                 let n = Vector::new(dx / dist, 0.0, dz / dist);
                 let push = (car_min - dist) * car_push_scale;
                 *pos += n * push;
+            }
+
+            // Ambient traffic shoves peds aside the same way the player car
+            // does (they are decorative — no physical colliders to do it).
+            for tp in &traffic_positions {
+                let tx = pos.x - tp.x;
+                let tz = pos.z - tp.z;
+                let t_sq = tx * tx + tz * tz;
+                if t_sq < car_min * car_min {
+                    let dist = t_sq.sqrt().max(0.001);
+                    let push = car_min - dist;
+                    *pos += Vector::new(tx / dist, 0.0, tz / dist) * push;
+                }
             }
 
             let speed = 0.8 + (i % 7) as f32 * 0.1;
