@@ -5,6 +5,7 @@ use crate::bridge::input::InputState;
 use crate::character::{self, PlayerState};
 use crate::constants::{DAY_CYCLE_SECONDS, DAY_START_FRACTION, DEFAULT_PED_COUNT};
 use crate::crowd::{self, CrowdState};
+use crate::police::PoliceState;
 use crate::traffic::TrafficState;
 use crate::vehicle::{self, VehicleState};
 use crate::world::{self, ChunkStore, WorldKind};
@@ -38,6 +39,7 @@ pub struct SimEngine {
     pub(crate) crowd: CrowdState,
     pub(crate) chunks: ChunkStore,
     pub(crate) traffic: TrafficState,
+    pub(crate) police: PoliceState,
 }
 
 impl Default for SimEngine {
@@ -110,6 +112,7 @@ impl SimEngine {
             crowd: crowd::spawn_peds(count as usize, kind),
             chunks: ChunkStore::default(),
             traffic: TrafficState::default(),
+            police: PoliceState::default(),
         }
     }
 
@@ -128,6 +131,8 @@ impl SimEngine {
         self.update_traffic(dt);
         self.update_player(dt);
         self.update_pedestrians(dt);
+        // Police runs after crowd/traffic so same-frame crime reports land.
+        self.update_police(dt);
 
         // Wheel/suspension impulses are already applied above, so the car's
         // velocity change across the solver step isolates chassis contact

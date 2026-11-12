@@ -86,12 +86,21 @@ pub const ENV_STATE_FLOATS: u32 = 1;
 pub const MAX_TRAFFIC: u32 = 12;
 /// Per traffic car: [active, x, y, z, qx, qy, qz, qw].
 pub const TRAFFIC_STATE_STRIDE: u32 = 8;
+/// Police cruiser pool (Phase 4, wanted ★1–3): same fixed-slot scheme.
+pub const MAX_POLICE: u32 = 6;
+/// Per police car: [active, x, y, z, qx, qy, qz, qw].
+pub const POLICE_STATE_STRIDE: u32 = 8;
+/// Wanted block: [stars 0–3, seen 0/1] (seen = a cop has line-of-sight;
+/// the HUD flashes the stars in search mode when it drops to 0).
+pub const WANTED_STATE_FLOATS: u32 = 2;
 pub const PED_STATE_STRIDE: u32 = 16;
 pub const PLAYER_STATE_OFFSET: u32 = CAR_STATE_FLOATS;
 pub const HUD_STATE_OFFSET: u32 = PLAYER_STATE_OFFSET + PLAYER_STATE_FLOATS;
 pub const CAM_STATE_OFFSET: u32 = HUD_STATE_OFFSET + HUD_STATE_FLOATS;
 pub const ENV_STATE_OFFSET: u32 = CAM_STATE_OFFSET + CAM_STATE_FLOATS;
-pub const TRAFFIC_STATE_OFFSET: u32 = ENV_STATE_OFFSET + ENV_STATE_FLOATS;
+pub const WANTED_STATE_OFFSET: u32 = ENV_STATE_OFFSET + ENV_STATE_FLOATS;
+pub const POLICE_STATE_OFFSET: u32 = WANTED_STATE_OFFSET + WANTED_STATE_FLOATS;
+pub const TRAFFIC_STATE_OFFSET: u32 = POLICE_STATE_OFFSET + MAX_POLICE * POLICE_STATE_STRIDE;
 pub const PED_STATE_OFFSET: u32 = TRAFFIC_STATE_OFFSET + MAX_TRAFFIC * TRAFFIC_STATE_STRIDE;
 
 /// One full day/night cycle in real seconds (24 game-min, PRD §6).

@@ -156,6 +156,32 @@ fn ramming_traffic_converts_it_to_a_dynamic_body() {
 }
 
 #[test]
+fn traffic_passes_a_car_parked_beside_the_lane() {
+    // Adjacent-lane geometry (kit lanes sit 2.6 m off a parked car's line):
+    // passing traffic must NOT convert to dynamic against the parked player
+    // car — that used to grind its health to zero while it sat at spawn.
+    let (mut engine, mut buf) = setup_with_lane();
+    engine.teleport_car(2.6, 1.0, 100.0);
+    let mut passed = false;
+    for _ in 0..(20 * HZ) {
+        engine.step();
+        engine.write_state(&mut buf);
+        if traffic_positions(&buf).iter().any(|c| c.2 > 110.0) {
+            passed = true;
+        }
+    }
+    assert!(
+        passed,
+        "traffic never passed the car parked beside the lane"
+    );
+    let health = buf[CAR_HEALTH_OFFSET as usize];
+    assert!(
+        health > 0.999,
+        "passing traffic damaged the parked player car: health {health}"
+    );
+}
+
+#[test]
 fn unloading_the_chunk_despawns_its_traffic() {
     let (mut engine, _) = setup_with_lane();
     for _ in 0..(3 * HZ) {
@@ -193,4 +219,64 @@ fn traffic_is_deterministic() {
             "state diverged at float {i}: {x} vs {y}"
         );
     }
+}
+
+/// Four-way crossroads at the origin with the kit city's lane layout: every
+/// street has a twin pair of one-way lanes 2.6 m off its centerline, inset
+/// 7 m from the intersection center.
+fn load_crossroads(engine: &mut SimEngine) {
+    let lanes: [[f32; 6]; 8] = [
+        [2.6, 0.25, -77.0, 2.6, 0.25, -7.0],
+        [-2.6, 0.25, -7.0, -2.6, 0.25, -77.0],
+        [-7.0, 0.25, -2.6, -77.0, 0.25, -2.6],
+        [-77.0, 0.25, 2.6, -7.0, 0.25, 2.6],
+        [2.6, 0.25, 7.0, 2.6, 0.25, 77.0],
+        [-2.6, 0.25, 77.0, -2.6, 0.25, 7.0],
+        [77.0, 0.25, -2.6, 7.0, 0.25, -2.6],
+        [7.0, 0.25, 2.6, 77.0, 0.25, 2.6],
+    ];
+    let points: Vec<f32> = lanes.iter().flatten().copied().collect();
+    engine.load_chunk(0, 0, &[]);
+    engine.load_chunk_lanes(0, 0, &points, &[2; 8]);
+}
+
+#[test]
+fn turning_traffic_never_rams_a_car_parked_in_the_intersection() {
+    // The default spawn: player car parked dead-center on a crossroads, the
+    // player standing next to it. Traffic turning across the intersection
+    // used to bulldoze the parked car as an unstoppable kinematic body.
+    let mut engine = SimEngine::new_city(0);
+    load_crossroads(&mut engine);
+    let mut buf = vec![0.0; engine.state_len()];
+    engine.write_state(&mut buf);
+    let (x0, z0) = (buf[0], buf[2]);
+
+    let mut crossed = 0usize;
+    for _ in 0..(120 * HZ) {
+        engine.step();
+        engine.write_state(&mut buf);
+        crossed = crossed.max(
+            traffic_positions(&buf)
+                .iter()
+                .filter(|c| c.0.abs() < 7.0 && c.2.abs() < 7.0)
+                .count(),
+        );
+    }
+
+    assert!(crossed >= 1, "no traffic ever entered the intersection");
+    let moved = ((buf[0] - x0).powi(2) + (buf[2] - z0).powi(2)).sqrt();
+    assert!(
+        moved < 0.3,
+        "traffic shoved the parked player car {moved} m"
+    );
+    let health = buf[CAR_HEALTH_OFFSET as usize];
+    assert!(
+        health > 0.999,
+        "traffic damaged the parked player car: health {health}"
+    );
+    assert_eq!(
+        engine.wanted_stars(),
+        0,
+        "a driverless parked car earned a wanted level"
+    );
 }

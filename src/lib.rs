@@ -4,6 +4,7 @@ mod bridge;
 mod character;
 mod crowd;
 mod engine;
+mod police;
 mod traffic;
 mod vehicle;
 mod world;
