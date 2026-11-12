@@ -44,13 +44,13 @@ pub const PLAYER_JUMP_SPEED: f32 = 6.2;
 pub const PLAYER_WALK_SPEED: f32 = 4.0;
 pub const PLAYER_RUN_SPEED: f32 = 7.0;
 
-// Chassis collider box, sized to the visual bodies' envelope (the widest /
-// longest of the three normalized kit cars, measured in-engine): the visuals
-// are height-limited when scaled into this box, so all three fill it snugly
-// and the test-mode wireframe hugs the car instead of swimming around it.
+// Chassis collider box: the envelope of the three car models
+// (client/scripts/car-models), which are 4.4–4.8 m long and 1.25–1.75 m tall.
 pub const CAR_HALF_WIDTH: f32 = 0.95;
-pub const CAR_HALF_HEIGHT: f32 = 0.8;
-pub const CAR_HALF_LENGTH: f32 = 1.9;
+pub const CAR_HALF_HEIGHT: f32 = 0.62;
+pub const CAR_HALF_LENGTH: f32 = 2.3;
+/// The player car's body origin rides high on its suspension; its chassis box hangs this far below it.
+pub const CAR_CHASSIS_DROP: f32 = 0.45;
 /// Max horizontal distance (car center → player) at which pressing enter
 /// starts the walk-to-door. Also drives the HUD "enter" hint.
 pub const ENTER_RADIUS: f32 = 6.0;

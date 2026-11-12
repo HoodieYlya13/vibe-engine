@@ -2,7 +2,7 @@
 //! class switching (PRD Phase 2).
 
 use sim::SimEngine;
-use sim::constants::BTN_FORWARD;
+use sim::constants::{BTN_FORWARD, CAR_CHASSIS_DROP, CAR_HALF_HEIGHT};
 
 const HZ: usize = 60;
 
@@ -133,4 +133,27 @@ fn reapplying_the_class_resets_live_tuning() {
         defaults,
         "re-applying the active class should restore its data-file tuning"
     );
+}
+
+#[test]
+fn chassis_box_sits_where_the_car_body_is_drawn() {
+    for class_index in 0..3 {
+        let mut engine = SimEngine::new_open_field(0);
+        engine.set_vehicle_class(class_index);
+        let mut buf = vec![0.0; engine.state_len()];
+        for _ in 0..(2 * HZ) {
+            engine.step();
+        }
+        let box_center = car_pos(&engine, &mut buf).1 - CAR_CHASSIS_DROP;
+        let underside = box_center - CAR_HALF_HEIGHT;
+        let roof = box_center + CAR_HALF_HEIGHT;
+        assert!(
+            (0.1..=0.45).contains(&underside),
+            "class {class_index}: chassis underside rests {underside:.2} m over the road"
+        );
+        assert!(
+            (1.2..=1.8).contains(&roof),
+            "class {class_index}: chassis roof rests {roof:.2} m over the road"
+        );
+    }
 }

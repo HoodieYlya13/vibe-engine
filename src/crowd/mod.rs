@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use rapier3d::prelude::*;
 
 use crate::constants::{
-    BLOCKS, CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, CHUNK_SIZE, CITY_GROUND_HALF,
-    PLAYER_FOOT_RADIUS, PLAYER_STAND_HEIGHT, RAMPS, WORLD_HALF,
+    BLOCKS, CAR_CHASSIS_DROP, CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH, CHUNK_SIZE,
+    CITY_GROUND_HALF, PLAYER_FOOT_RADIUS, PLAYER_STAND_HEIGHT, RAMPS, WORLD_HALF,
 };
 use crate::engine::SimEngine;
 use crate::traffic::Lane;
@@ -587,7 +587,8 @@ impl SimEngine {
         if !in_car {
             let dx = player_pos.x - car_pos.x;
             let dz = player_pos.z - car_pos.z;
-            let roof_center_y = car_pos.y + CAR_HALF_HEIGHT + PLAYER_STAND_HEIGHT;
+            let roof_center_y =
+                car_pos.y - CAR_CHASSIS_DROP + CAR_HALF_HEIGHT + PLAYER_STAND_HEIGHT;
             let player_above_roof = player_pos.y >= roof_center_y - 0.1;
             if !player_above_roof {
                 let mut right_h = car_rot * Vector::new(1.0, 0.0, 0.0);

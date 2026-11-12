@@ -6,11 +6,15 @@ use serde::Deserialize;
 
 pub(crate) use spec::VehicleSpec;
 
-use crate::constants::{CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH};
+use crate::constants::{CAR_CHASSIS_DROP, CAR_HALF_HEIGHT, CAR_HALF_LENGTH, CAR_HALF_WIDTH};
 use crate::engine::SimEngine;
 
-/// Wheel attach spacing (see `build_vehicle_body`).
-const WHEELBASE: f32 = 2.0 * CAR_HALF_LENGTH * 0.8;
+/// Where the wheels attach, from the chassis center line and from its middle.
+const WHEEL_HALF_TRACK: f32 = 0.8075;
+const WHEEL_HALF_BASE: f32 = 1.52;
+const WHEELBASE: f32 = 2.0 * WHEEL_HALF_BASE;
+/// Width, height and length of the box the class masses were tuned to turn like.
+const INERTIA_BOX: (f32, f32, f32) = (1.9, 1.6, 3.8);
 /// Cornering budget below the yaw floor: allowed turn rate is `this / speed`.
 const MAX_LATERAL_ACCEL: f32 = 30.0;
 /// Arcade floor on the full-lock turn rate: a pure lateral-accel cap makes
@@ -92,11 +96,7 @@ pub(crate) fn build_vehicle_body(
     // The class mass sits below the chassis center so lateral grip has less
     // leverage to roll the car over. The principal inertia is the full-size
     // cuboid's at that mass, so yaw/pitch response scales with the class.
-    let (w, h, l) = (
-        2.0 * CAR_HALF_WIDTH,
-        2.0 * CAR_HALF_HEIGHT,
-        2.0 * CAR_HALF_LENGTH,
-    );
+    let (w, h, l) = INERTIA_BOX;
     let inertia = Vector::new(
         class.chassis.mass / 12.0 * (h * h + l * l),
         class.chassis.mass / 12.0 * (w * w + l * l),
@@ -113,6 +113,7 @@ pub(crate) fn build_vehicle_body(
         .angular_damping(class.chassis.angular_damping)
         .build();
     let car_collider = ColliderBuilder::cuboid(CAR_HALF_WIDTH, CAR_HALF_HEIGHT, CAR_HALF_LENGTH)
+        .translation(Vector::new(0.0, -CAR_CHASSIS_DROP, 0.0))
         .restitution(0.1)
         .friction(1.2)
         .build();
@@ -133,8 +134,6 @@ pub(crate) fn build_vehicle_body(
         friction_slip: wheels.friction_slip,
         max_suspension_force: wheels.max_suspension_force,
     };
-    let half_width = CAR_HALF_WIDTH * 0.85;
-    let half_length = CAR_HALF_LENGTH * 0.8;
     let connection_height = -0.5;
     let direction = Vector::new(0.0, -1.0, 0.0);
     // Rapier derives the wheel's forward as contact_normal × axle; with -X the
@@ -144,7 +143,11 @@ pub(crate) fn build_vehicle_body(
 
     for (x_sign, z_sign) in [(-1.0, 1.0), (1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] {
         controller.add_wheel(
-            Vector::new(x_sign * half_width, connection_height, z_sign * half_length),
+            Vector::new(
+                x_sign * WHEEL_HALF_TRACK,
+                connection_height,
+                z_sign * WHEEL_HALF_BASE,
+            ),
             direction,
             axle,
             wheels.suspension_rest,
