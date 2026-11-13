@@ -51,7 +51,7 @@ impl SimEngine {
 
         let cam_offset = CAM_STATE_OFFSET as usize;
         let (target, target_y, radius) = if self.player.in_car {
-            (translation, 0.6, 20.0)
+            (translation, 0.6, 8.5)
         } else {
             (self.player.pos, 0.9, 8.0)
         };

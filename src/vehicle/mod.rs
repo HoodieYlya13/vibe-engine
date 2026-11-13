@@ -15,22 +15,50 @@ const WHEEL_HALF_BASE: f32 = 1.52;
 const WHEELBASE: f32 = 2.0 * WHEEL_HALF_BASE;
 /// Width, height and length of the box the class masses were tuned to turn like.
 const INERTIA_BOX: (f32, f32, f32) = (1.9, 1.6, 3.8);
-/// Cornering budget below the yaw floor: allowed turn rate is `this / speed`.
-const MAX_LATERAL_ACCEL: f32 = 30.0;
-/// Arcade floor on the full-lock turn rate: a pure lateral-accel cap makes
-/// the radius grow with v² ("turns like an airplane" at top speed), so full
-/// lock always buys at least this yaw rate regardless of speed. The implied
-/// lateral g at speed is fiction, but the grip assist applies cornering as a
-/// velocity rotation at the center of mass — torque-free — so it stays flat.
-const MIN_FULL_LOCK_TURN_RATE: f32 = 0.9;
-/// How fast the effective steering angle sweeps (rad/s). Full lock arrives in
-/// ~0.15 s — snappy at parking speeds, but a flick reversal at highway speed
-/// is a swing through center, not a one-frame lock-to-lock slam.
-const STEER_SLEW: f32 = 3.0;
+/// Seconds the steering takes from center to full lock, and from full lock back to center.
+const STEER_ENGAGE_TIME: f32 = 0.3;
+const STEER_RELEASE_TIME: f32 = 0.12;
+/// Below this speed (m/s) the car is parked: steering is not limited and nothing assists it.
+const ROLLING_SPEED: f32 = 0.5;
+/// Turn rate full lock commands in a handbrake slide (rad/s), reached at `SLIDE_FULL_SPEED`.
+const SLIDE_TURN_RATE: f32 = 2.0;
+const SLIDE_FULL_SPEED: f32 = 8.0;
+/// Seconds the rear tires take to break loose under the handbrake, and to grip again after it.
+const SLIDE_ENGAGE_TIME: f32 = 0.12;
+const SLIDE_RECOVERY_TIME: f32 = 0.45;
+/// How fast the turn rate follows the steering (1/s).
+const YAW_ASSIST_RATE: f32 = 60.0;
+/// How fast the car's momentum swings round to its nose (1/s): gripping, and in a full slide.
+const GRIP_ALIGN_RATE: f32 = 15.0;
+const SLIDE_ALIGN_RATE: f32 = 2.0;
 
-/// The turn rate full lock is allowed to command at `speed`.
-fn allowed_turn_rate(speed: f32) -> f32 {
-    (MAX_LATERAL_ACCEL / speed).max(MIN_FULL_LOCK_TURN_RATE)
+fn approach(current: f32, target: f32, max_step: f32) -> f32 {
+    current + (target - current).clamp(-max_step, max_step)
+}
+
+fn blend(gripping: f32, sliding: f32, looseness: f32) -> f32 {
+    gripping + (sliding - gripping) * looseness
+}
+
+/// Moves the steering toward the input: unhurried into a turn, quick back to straight.
+fn sweep_steering(position: f32, input: f32, dt: f32) -> f32 {
+    let is_returning = input.abs() < position.abs() || input * position < 0.0;
+    let sweep_time = if is_returning {
+        STEER_RELEASE_TIME
+    } else {
+        STEER_ENGAGE_TIME
+    };
+    approach(position, input, dt / sweep_time)
+}
+
+/// The turn rate (rad/s) the wheels trace at `steer_angle` when nothing slips.
+fn kinematic_turn_rate(steer_angle: f32, rear_steer: f32, forward_speed: f32) -> f32 {
+    steer_angle * (1.0 + rear_steer) * forward_speed / WHEELBASE
+}
+
+/// The steering angle whose turn at `speed` uses all the cornering grip the tires have.
+fn grip_limited_steer(cornering_grip: f32, rear_steer: f32, speed: f32) -> f32 {
+    cornering_grip * WHEELBASE / ((1.0 + rear_steer) * speed * speed)
 }
 
 /// Runtime-mutable driving parameters. Defaults come from the active class in
@@ -61,8 +89,10 @@ pub(crate) struct VehicleState {
     pub(crate) class_index: usize,
     /// 1.0 = pristine, 0.0 = destroyed (drivetrain dead until reset).
     pub(crate) health: f32,
-    /// Slew-limited effective steering angle actually on the wheels.
-    pub(crate) steer_state: f32,
+    /// Where the steering is: -1 full left, 0 straight, 1 full right.
+    pub(crate) steering: f32,
+    /// How far the rear tires have broken loose: 0 gripping, 1 sliding under the handbrake.
+    pub(crate) slide: f32,
 }
 
 pub(crate) fn create_vehicle(
@@ -82,7 +112,8 @@ pub(crate) fn create_vehicle(
         classes,
         class_index,
         health: 1.0,
-        steer_state: 0.0,
+        steering: 0.0,
+        slide: 0.0,
     }
 }
 
@@ -212,34 +243,9 @@ impl SimEngine {
             brake = tuning.engine_brake_impulse;
         }
 
-        let mut steer_angle = steer * tuning.max_steer;
-        // Reverse stability: scale steering authority down with reverse speed
-        // (unassisted reverse yaws ~1.5 rad/s — twitchier than forward).
-        if tuning.reverse_stability > 0.0 && forward_speed < -0.5 {
-            steer_angle /= 1.0 + tuning.reverse_stability * -forward_speed;
-        }
-
-        // Speed-aware steering: never steer the wheels past the angle whose
-        // kinematic turn rate the lateral-g budget allows at this speed.
-        // Full lock at highway speed is a violent tire-scrub event (the
-        // browser repro: a 74 m/s flick reversal rolled the car to 46°) —
-        // capping the *wheels*, not just the assist's yaw target, keeps the
-        // tires rolling instead of fighting. Full lock remains available at
-        // parking speeds where the cap doesn't bind.
-        let speed = forward_speed.abs();
-        if speed > 0.5 {
-            let kinematic_full = steer_angle.abs() * (1.0 + tuning.rear_steer) * speed / WHEELBASE;
-            let cap = allowed_turn_rate(speed);
-            if kinematic_full > cap {
-                steer_angle *= cap / kinematic_full;
-            }
-        }
-        // Slew limit: the wheels sweep to the requested angle instead of
-        // teleporting — a direction flick passes through center.
-        let max_step = STEER_SLEW * dt;
-        self.vehicle.steer_state +=
-            (steer_angle - self.vehicle.steer_state).clamp(-max_step, max_step);
-        let steer_angle = self.vehicle.steer_state;
+        self.vehicle.steering = sweep_steering(self.vehicle.steering, steer, dt);
+        self.vehicle.slide = self.swept_slide(handbrake, dt);
+        let steer_angle = self.vehicle.steering * self.steering_lock(forward_speed);
 
         // Anti-wheelie traction control: when the nose rises away from the
         // ROAD SURFACE, sustained thrust torque is what FEEDS the lift — cut
@@ -281,26 +287,19 @@ impl SimEngine {
             }
         }
 
-        // Handbrake drift: while the handbrake is held the rear tires keep
-        // only `handbrake_grip` of their grip, so the tail breaks loose and
-        // swings instead of the brake just scrubbing speed. Both knobs must
-        // shrink: `friction_slip` bounds the saturated (sliding) grip that
-        // dominates hard cornering, `side_friction_stiffness` the rest.
+        // Handbrake slide: the tires keep only `handbrake_grip` of their grip
+        // while the rear is loose, so the car slides instead of the brake just
+        // scrubbing speed. Both knobs must shrink: `friction_slip` bounds the
+        // saturated (sliding) grip, `side_friction_stiffness` the rest.
         let wheels_spec = &self.vehicle.classes[self.vehicle.class_index].wheels;
-        let grip = if handbrake {
-            tuning.handbrake_grip
-        } else {
-            1.0
-        };
-        let rear_side_friction = wheels_spec.side_friction_stiffness * grip;
-        let rear_friction_slip = wheels_spec.friction_slip * grip;
+        let grip = blend(1.0, tuning.handbrake_grip, self.vehicle.slide);
+        let side_friction = wheels_spec.side_friction_stiffness * grip;
+        let friction_slip = wheels_spec.friction_slip * grip;
 
         for (index, wheel) in self.vehicle.controller.wheels_mut().iter_mut().enumerate() {
             let rear = index >= 2;
-            if rear {
-                wheel.side_friction_stiffness = rear_side_friction;
-                wheel.friction_slip = rear_friction_slip;
-            }
+            wheel.side_friction_stiffness = side_friction;
+            wheel.friction_slip = friction_slip;
             if handbrake && rear {
                 wheel.engine_force = 0.0;
                 wheel.brake = tuning.handbrake_impulse;
@@ -325,7 +324,46 @@ impl SimEngine {
             QueryFilter::default().exclude_rigid_body(self.vehicle.body_handle),
         );
         self.vehicle.controller.update_vehicle(dt, queries);
-        self.apply_drive_assists(dt, throttle, steer, steer_angle, forward_speed, handbrake);
+        self.apply_drive_assists(dt, throttle, steer, steer_angle, forward_speed);
+    }
+
+    fn swept_slide(&self, handbrake: bool, dt: f32) -> f32 {
+        if handbrake {
+            approach(self.vehicle.slide, 1.0, dt / SLIDE_ENGAGE_TIME)
+        } else {
+            approach(self.vehicle.slide, 0.0, dt / SLIDE_RECOVERY_TIME)
+        }
+    }
+
+    /// The widest angle the front wheels may take at this speed: full lock when
+    /// parking, then only as much as the tires can hold, and less in reverse.
+    fn steering_lock(&self, forward_speed: f32) -> f32 {
+        let tuning = self.vehicle.tuning;
+        let cornering_grip = self.vehicle.classes[self.vehicle.class_index]
+            .wheels
+            .cornering_grip;
+        let speed = forward_speed.abs();
+        if speed <= ROLLING_SPEED {
+            return tuning.max_steer;
+        }
+        let lock =
+            tuning
+                .max_steer
+                .min(grip_limited_steer(cornering_grip, tuning.rear_steer, speed));
+        if forward_speed < 0.0 {
+            return lock / (1.0 + tuning.reverse_stability * speed);
+        }
+        lock
+    }
+
+    /// The turn rate the steering asks for: what the wheels trace while the
+    /// tires grip, and a fixed fast swing while the rear slides.
+    fn commanded_turn_rate(&self, steer_angle: f32, forward_speed: f32, looseness: f32) -> f32 {
+        let gripping =
+            kinematic_turn_rate(steer_angle, self.vehicle.tuning.rear_steer, forward_speed);
+        let slide_speed = (forward_speed / SLIDE_FULL_SPEED).clamp(-1.0, 1.0);
+        let sliding = self.vehicle.steering * SLIDE_TURN_RATE * slide_speed;
+        blend(gripping, sliding, looseness)
     }
 
     /// Arcade stability assists, applied as torque impulses on top of the
@@ -340,7 +378,6 @@ impl SimEngine {
         steer: f32,
         steer_angle: f32,
         forward_speed: f32,
-        handbrake: bool,
     ) {
         let tuning = self.vehicle.tuning;
         let grounded_wheels = self
@@ -419,45 +456,38 @@ impl SimEngine {
         // correction loses that fight (saturated tires out-torque any sane
         // spring), so this works at the velocity level, after all torque
         // impulses above: (a) blend the yaw component of angvel toward the
-        // kinematic turn rate (capped by a lateral-g budget at speed) —
-        // same steer + same speed = same turn, throttle or not; (b) rotate
-        // the momentum vector toward the nose (magnitude preserved — tires
-        // redirecting momentum), so the induced yaw carves an arc instead
-        // of crabbing diagonally on washed-out fronts. Both are off during
-        // handbrake (drifts must stay loose), need a grounded wheel (hard
-        // cornering routinely lifts wheels — the assist must keep holding
-        // the line), and only apply while roughly level: the kinematic
-        // model means nothing mid-wheelie or on a wall, and the anti-flip
-        // springs need those regimes to themselves.
-        const YAW_ASSIST_RATE: f32 = 60.0; // full correction per 60 Hz frame
-        const GRIP_ALIGN_RATE: f32 = 15.0; // 1/s slip-angle decay
-        if !handbrake && grounded_wheels >= 1 && forward_speed.abs() > 0.5 && up.y > 0.8 {
-            // Counter-phase rear steering shortens the effective wheelbase.
-            // steer_angle is already speed-capped and slewed, so this target
-            // stays inside the lateral budget; the clamp is a safety net.
-            let kinematic = steer_angle * (1.0 + tuning.rear_steer) * forward_speed / WHEELBASE;
-            let cap = allowed_turn_rate(forward_speed.abs());
-            let target = kinematic.clamp(-cap, cap);
-            let angvel = body.angvel();
-            let err = target - angvel.dot(up);
-            body.set_angvel(angvel + up * (err * (YAW_ASSIST_RATE * dt).min(1.0)), true);
+        // turn rate the steering commands; (b) rotate the momentum vector
+        // toward the nose (magnitude preserved — tires redirecting momentum).
+        // A handbrake slide loosens both, so the nose swings ahead of the
+        // momentum. Needs a grounded wheel and a roughly level car: the model
+        // means nothing mid-wheelie or on a wall.
+        if grounded_wheels == 0 || forward_speed.abs() <= ROLLING_SPEED || up.y <= 0.8 {
+            return;
+        }
+        let looseness = self.vehicle.slide * (1.0 - tuning.handbrake_grip);
+        let target = self.commanded_turn_rate(steer_angle, forward_speed, looseness);
+        let align_rate = blend(GRIP_ALIGN_RATE, SLIDE_ALIGN_RATE, looseness);
 
-            let linvel = body.linvel();
-            let v_h = Vector::new(linvel.x, 0.0, linvel.z);
-            let speed_h = v_h.length();
-            let fwd_h = Vector::new(forward.x, 0.0, forward.z);
-            if speed_h > 0.5
-                && let Some(travel_dir) = (fwd_h * forward_speed.signum()).try_normalize()
-            {
-                let dir = v_h / speed_h;
-                // Signed slip angle about +Y from velocity to travel heading.
-                let slip = (dir.z * travel_dir.x - dir.x * travel_dir.z).atan2(dir.dot(travel_dir));
-                let (s, c) = (slip * (GRIP_ALIGN_RATE * dt).min(1.0)).sin_cos();
-                body.set_linvel(
-                    Vector::new(v_h.x * c + v_h.z * s, linvel.y, -v_h.x * s + v_h.z * c),
-                    true,
-                );
-            }
+        let body = &mut self.rigid_body_set[self.vehicle.body_handle];
+        let angvel = body.angvel();
+        let err = target - angvel.dot(up);
+        body.set_angvel(angvel + up * (err * (YAW_ASSIST_RATE * dt).min(1.0)), true);
+
+        let linvel = body.linvel();
+        let v_h = Vector::new(linvel.x, 0.0, linvel.z);
+        let speed_h = v_h.length();
+        let fwd_h = Vector::new(forward.x, 0.0, forward.z);
+        if speed_h > ROLLING_SPEED
+            && let Some(travel_dir) = (fwd_h * forward_speed.signum()).try_normalize()
+        {
+            let dir = v_h / speed_h;
+            // Signed slip angle about +Y from velocity to travel heading.
+            let slip = (dir.z * travel_dir.x - dir.x * travel_dir.z).atan2(dir.dot(travel_dir));
+            let (s, c) = (slip * (align_rate * dt).min(1.0)).sin_cos();
+            body.set_linvel(
+                Vector::new(v_h.x * c + v_h.z * s, linvel.y, -v_h.x * s + v_h.z * c),
+                true,
+            );
         }
     }
 

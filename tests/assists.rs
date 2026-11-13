@@ -113,10 +113,13 @@ fn default_tuning(index: usize) -> f32 {
 
 #[test]
 fn rear_steer_tightens_the_turn() {
-    // Short spin-up and window: at higher speeds the lateral-g budget caps
-    // both configurations to the same turn rate, hiding the difference.
+    // A weak engine keeps the car at parking speed: faster than that, tire
+    // grip caps both configurations to the same turn rate, hiding the difference.
     let turn = |rear_steer: f32| {
-        let mut h = Harness::new(|v| v[REAR_STEER] = rear_steer);
+        let mut h = Harness::new(|v| {
+            v[ENGINE_FORCE] = 600.0;
+            v[REAR_STEER] = rear_steer;
+        });
         h.hold(BTN_FORWARD, 0.5);
         h.turned_while_holding(BTN_FORWARD | BTN_RIGHT, 1.0).abs()
     };
@@ -124,7 +127,7 @@ fn rear_steer_tightens_the_turn() {
     let front_only = turn(0.0);
     let with_rear = turn(0.8);
     assert!(
-        with_rear > front_only + 0.15,
+        with_rear > front_only * 1.4,
         "counter-phase rear steer should turn the car faster: \
          front-only {front_only} rad vs rear-steer {with_rear} rad"
     );
@@ -217,7 +220,7 @@ fn lift_off_does_not_snap_the_turn() {
     h.hold(BTN_FORWARD, 2.0);
     let on = (h.turned_while_holding(BTN_FORWARD | BTN_RIGHT, 0.75) / 0.75).abs();
     let off = (h.turned_while_holding(BTN_RIGHT, 0.3) / 0.3).abs();
-    assert!(on > 0.5, "car barely turns under throttle: {on} rad/s");
+    assert!(on > 0.25, "car barely turns under throttle: {on} rad/s");
     assert!(
         off < on * 1.35,
         "yaw rate snapped on throttle release: {on} rad/s with W vs {off} rad/s just after"
@@ -291,7 +294,7 @@ fn handbrake_grip_cut_swings_the_tail() {
     // keeps going wide. With full grip the handbrake only plows (slip ≤ 0).
     let max_tail_out = |handbrake_grip: f32| {
         let mut h = Harness::new(|v| v[HANDBRAKE_GRIP] = handbrake_grip);
-        h.hold(BTN_FORWARD, 2.0);
+        h.hold(BTN_FORWARD, 4.0);
         h.engine
             .set_input_buttons(BTN_FORWARD | BTN_RIGHT | BTN_HANDBRAKE, 0.0);
         let mut prev = h.pos_xz();

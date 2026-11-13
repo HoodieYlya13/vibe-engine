@@ -29,6 +29,8 @@ pub(crate) struct WheelSpec {
     pub(crate) max_suspension_travel: f32,
     pub(crate) side_friction_stiffness: f32,
     pub(crate) friction_slip: f32,
+    /// Sideways acceleration the tires hold in a turn (m/s²); steering never asks for more.
+    pub(crate) cornering_grip: f32,
     /// Hard cap in newtons (NOT mass-relative) — heavier classes need more.
     pub(crate) max_suspension_force: f32,
 }
