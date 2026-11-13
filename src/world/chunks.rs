@@ -31,7 +31,7 @@ impl SimEngine {
         let origin = Vector::new(cx as f32 * CHUNK_SIZE, 0.0, cz as f32 * CHUNK_SIZE);
         let body = RigidBodyBuilder::fixed().translation(origin).build();
         let handle = self.rigid_body_set.insert(body);
-        for row in boxes.chunks_exact(CHUNK_BOX_FLOATS) {
+        for row in boxes.as_chunks::<CHUNK_BOX_FLOATS>().0 {
             let collider = ColliderBuilder::cuboid(row[3], row[4], row[5])
                 .translation(Vector::new(row[0], row[1], row[2]))
                 .build();

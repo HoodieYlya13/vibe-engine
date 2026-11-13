@@ -302,9 +302,11 @@ impl SimEngine {
         for &count in counts {
             let count = count as usize;
             let pts: Vec<Vector> = points[cursor..]
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .take(count)
-                .map(|row| origin + Vector::new(row[0], row[1], row[2]))
+                .map(|&[x, y, z]| origin + Vector::new(x, y, z))
                 .collect();
             cursor += count * 3;
             if pts.len() >= 2 {
